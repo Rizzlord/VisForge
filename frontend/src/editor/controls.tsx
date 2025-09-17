@@ -6,20 +6,57 @@ import { Scene } from '@babylonjs/core/scene'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
-import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh'
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader'
 import { Material } from '@babylonjs/core/Materials/material'
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { NormalMaterial } from '@babylonjs/materials/normal/normalMaterial'
 import '@babylonjs/loaders'
 
-import { fileToImageValue, fileToModelValue } from './imageUtils'
+import { fileToImageValue, fileToModelValue, base64ToArrayBuffer, arrayBufferToBase64 } from './imageUtils'
 import { useGraphStore } from './store'
-import type { ChannelKey, ChannelValue, GraphOutputs, ImageValue, ModelValue, PreviewMode } from './types'
+import type {
+  ChannelKey,
+  ChannelValue,
+  GraphOutputs,
+  ImageValue,
+  ModelValue,
+  PreviewMode,
+  TripoParams,
+  TripoSerializedState,
+} from './types'
 
 const EMPTY_OUTPUTS = Object.freeze({}) as GraphOutputs[string]
+const DEFAULT_BACKEND_BASE = (() => {
+  const env = (import.meta as any).env?.VITE_BACKEND_URL as string | undefined
+  if (env && env.trim()) {
+    return env.replace(/\/$/, '')
+  }
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol
+    const hostname = window.location.hostname
+    const defaultPort = 8000
+    return `${protocol}//${hostname}:${defaultPort}`
+  }
+  return ''
+})()
+const DEFAULT_TRIPO_PARAMS: TripoParams = {
+  seed: 681589206,
+  useFloat16: true,
+  extraDepthLevel: 1,
+  numInferenceSteps: 50,
+  cfgScale: 15,
+  simplifyMesh: false,
+  targetFaceNumber: 100000,
+  useFlashDecoder: true,
+  denseOctreeResolution: 512,
+  hierarchicalOctreeResolution: 512,
+  flashOctreeResolution: 512,
+  unloadModelAfterGeneration: true,
+}
+
+const OCTREE_OPTIONS = [256, 512, 1024, 2048]
 
 export class ReactiveControl extends ClassicPreset.Control {
   readonly nodeId: string
@@ -80,6 +117,129 @@ export class Preview3DControl extends ReactiveControl {
   setMode(mode: PreviewMode) {
     if (this.mode === mode) return
     this.mode = mode
+    this.notify()
+  }
+}
+
+export class TripoGenerationControl extends ReactiveControl {
+  params: TripoParams = { ...DEFAULT_TRIPO_PARAMS }
+  model: ModelValue | null = null
+  isGenerating = false
+  error: string | null = null
+  private inputImage: ImageValue | null = null
+
+  setInputImage(image: ImageValue | undefined) {
+    this.inputImage = image ?? null
+    this.notify()
+  }
+
+  hasInputImage(): boolean {
+    return this.inputImage !== null
+  }
+
+  updateParam<K extends keyof TripoParams>(key: K, value: TripoParams[K]) {
+    this.params = { ...this.params, [key]: value }
+    this.notify()
+  }
+
+  applySerialized(state?: TripoSerializedState) {
+    if (!state) return
+    this.params = { ...this.params, ...state.params }
+    if (state.modelBase64) {
+      const buffer = base64ToArrayBuffer(state.modelBase64)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: state.modelFileName ?? 'tripo-model.glb',
+        mimeType: state.modelMimeType ?? 'model/gltf-binary',
+      }
+    }
+    this.notify()
+  }
+
+  serialize(): TripoSerializedState {
+    const base: TripoSerializedState = { params: { ...this.params } }
+    if (this.model) {
+      base.modelBase64 = arrayBufferToBase64(this.model.arrayBuffer)
+      base.modelFileName = this.model.fileName
+      base.modelMimeType = this.model.mimeType
+    }
+    return base
+  }
+
+  async generate(onGraphChange: () => void) {
+    if (!this.inputImage) {
+      this.error = 'Connect an image input before generating.'
+      this.notify()
+      return
+    }
+    this.isGenerating = true
+    this.error = null
+    this.model = null
+    this.notify()
+
+    try {
+      const response = await fetch(`${DEFAULT_BACKEND_BASE}/triposg/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_data_url: this.inputImage.dataUrl,
+          seed: this.params.seed,
+          use_float16: this.params.useFloat16,
+          extra_depth_level: this.params.extraDepthLevel,
+          num_inference_steps: this.params.numInferenceSteps,
+          cfg_scale: this.params.cfgScale,
+          simplify_mesh: this.params.simplifyMesh,
+          target_face_number: this.params.targetFaceNumber,
+          use_flash_decoder: this.params.useFlashDecoder,
+          dense_octree_resolution: this.params.denseOctreeResolution,
+          hierarchical_octree_resolution: this.params.hierarchicalOctreeResolution,
+          flash_octree_resolution: this.params.flashOctreeResolution,
+          unload_model_after_generation: this.params.unloadModelAfterGeneration,
+        }),
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || 'Failed to generate model')
+      }
+
+      const payload = await response.json()
+      if (!payload.glb_base64) {
+        throw new Error('Response did not include model data')
+      }
+      const buffer = base64ToArrayBuffer(payload.glb_base64)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: payload.file_name ?? 'tripo-model.glb',
+        mimeType: payload.mime_type ?? 'model/gltf-binary',
+      }
+      this.isGenerating = false
+      this.notify()
+      onGraphChange()
+    } catch (error) {
+      this.isGenerating = false
+      this.error = error instanceof Error ? error.message : 'Unknown error'
+      this.notify()
+    }
+  }
+}
+
+export class SaveModelControl extends ReactiveControl {
+  model: ModelValue | null = null
+
+  setModel(model: ModelValue | undefined) {
+    this.model = model ?? null
+    this.notify()
+  }
+}
+
+export class SaveImageControl extends ReactiveControl {
+  image: ImageValue | null = null
+
+  setImage(image: ImageValue | undefined) {
+    this.image = image ?? null
     this.notify()
   }
 }
@@ -161,7 +321,10 @@ export function ModelUploadControlView(props: {
   )
 }
 
-export function ChannelsPreviewControlView(props: { control: ChannelsPreviewControl }) {
+export function ChannelsPreviewControlView(props: {
+  control: ChannelsPreviewControl
+  onGraphChange?: () => void
+}) {
   const { control } = props
   const outputs = useGraphOutputs(control.nodeId)
   const channels: Partial<Record<ChannelKey, ChannelValue>> = {
@@ -229,6 +392,185 @@ export function Preview3DControlView(props: {
       <div className="control-label">Preview 3D</div>
       <ModeSelector mode={control.mode} onSelect={(m) => control.setMode(m)} />
       <BabylonViewport mode={control.mode} model={model} />
+    </div>
+  )
+}
+
+export function TripoGenerationControlView(props: {
+  control: TripoGenerationControl
+  onGraphChange: () => void
+}) {
+  const { control, onGraphChange } = props
+  const [, forceUpdate] = useState(0)
+
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  const params = control.params
+  const disableGenerate = control.isGenerating || !control.hasInputImage()
+
+  const handleNumberChange = (key: keyof TripoParams) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.type === 'number' ? Number(event.target.value) : event.target.value
+      control.updateParam(key, value as any)
+    }
+
+  const handleCheckbox = (key: keyof TripoParams) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      control.updateParam(key, event.target.checked as any)
+    }
+
+  const handleSelect = (key: keyof TripoParams) =>
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      control.updateParam(key, Number(event.target.value) as any)
+    }
+
+  return (
+    <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
+      <div className="control-label">Generate Tripo Model</div>
+      {control.error && <div className="control-error">{control.error}</div>}
+      {!control.hasInputImage() && <div className="control-hint">Connect an image input to enable generation.</div>}
+      <div className="tripo-grid">
+        <label>
+          Seed
+          <input type="number" value={params.seed} onChange={handleNumberChange('seed')} />
+        </label>
+        <label>
+          Steps
+          <input type="number" value={params.numInferenceSteps} min={1} max={1000} onChange={handleNumberChange('numInferenceSteps')} />
+        </label>
+        <label>
+          CFG Scale
+          <input type="number" value={params.cfgScale} step={0.1} min={0} max={50} onChange={handleNumberChange('cfgScale')} />
+        </label>
+        <label>
+          Extra Depth
+          <input type="number" value={params.extraDepthLevel} min={0} max={4} onChange={handleNumberChange('extraDepthLevel')} />
+        </label>
+        <label>
+          Dense Octree
+          <select value={params.denseOctreeResolution} onChange={handleSelect('denseOctreeResolution')}>
+            {OCTREE_OPTIONS.map((value) => (
+              <option key={`dense-${value}`} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Hierarchical Octree
+          <select value={params.hierarchicalOctreeResolution} onChange={handleSelect('hierarchicalOctreeResolution')}>
+            {OCTREE_OPTIONS.map((value) => (
+              <option key={`hier-${value}`} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Flash Octree
+          <select value={params.flashOctreeResolution} onChange={handleSelect('flashOctreeResolution')}>
+            {OCTREE_OPTIONS.map((value) => (
+              <option key={`flash-${value}`} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={params.useFloat16} onChange={handleCheckbox('useFloat16')} /> Use float16 (CUDA only)
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={params.useFlashDecoder} onChange={handleCheckbox('useFlashDecoder')} /> Flash decoder
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={params.simplifyMesh} onChange={handleCheckbox('simplifyMesh')} /> Simplify mesh
+        </label>
+        {params.simplifyMesh && (
+          <label>
+            Target Faces
+            <input type="number" value={params.targetFaceNumber} min={500} step={500} onChange={handleNumberChange('targetFaceNumber')} />
+          </label>
+        )}
+      </div>
+      <button type="button" onClick={() => void control.generate(onGraphChange)} disabled={disableGenerate}>
+        {control.isGenerating ? 'Generating…' : 'Generate'}
+      </button>
+      <label className="checkbox">
+        <input type="checkbox" checked={params.unloadModelAfterGeneration} onChange={handleCheckbox('unloadModelAfterGeneration')} />
+        Unload models after generation
+      </label>
+      {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}
+    </div>
+  )
+}
+
+export function SaveModelControlView(props: { control: SaveModelControl }) {
+  const { control } = props
+  const [, forceUpdate] = useState(0)
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  const handleDownload = () => {
+    if (!control.model) return
+    const blob = new Blob([control.model.arrayBuffer], { type: control.model.mimeType })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = control.model.fileName ?? 'model.glb'
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="control-block">
+      <div className="control-label">Save Model</div>
+      {control.model ? (
+        <>
+          <div className="control-hint">Model ready: {control.model.fileName ?? 'model.glb'}</div>
+          <button type="button" onClick={handleDownload}>
+            Download GLB
+          </button>
+        </>
+      ) : (
+        <div className="control-hint">Connect a model output to enable download.</div>
+      )}
+    </div>
+  )
+}
+
+export function SaveImageControlView(props: { control: SaveImageControl }) {
+  const { control } = props
+  const [, forceUpdate] = useState(0)
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  const handleDownload = () => {
+    if (!control.image) return
+    const anchor = document.createElement('a')
+    anchor.href = control.image.dataUrl
+    anchor.download = control.image.fileName ?? 'image.png'
+    anchor.click()
+  }
+
+  return (
+    <div className="control-block">
+      <div className="control-label">Save Image</div>
+      {control.image ? (
+        <>
+          <div className="preview-frame">
+            <img src={control.image.dataUrl} alt="Preview" />
+            <div className="meta-row">
+              <span>
+                {control.image.width} × {control.image.height}
+              </span>
+              {control.image.fileName && <span>{control.image.fileName}</span>}
+            </div>
+          </div>
+          <button type="button" onClick={handleDownload}>
+            Download Image
+          </button>
+        </>
+      ) : (
+        <div className="control-hint">Connect an image to enable download.</div>
+      )}
     </div>
   )
 }
@@ -330,6 +672,7 @@ function BabylonViewport(props: { mode: PreviewMode; model?: ModelValue }) {
 
   return (
     <div className="preview-canvas-wrapper">
+      {!model && <div className="control-hint">Connect a model to preview.</div>}
       <canvas className="preview-canvas" ref={canvasRef} />
     </div>
   )
@@ -337,32 +680,22 @@ function BabylonViewport(props: { mode: PreviewMode; model?: ModelValue }) {
 
 async function loadModelOrFallback(scene: Scene, model?: ModelValue): Promise<AbstractMesh[]> {
   if (!model) {
-    return [createFallbackMesh(scene)]
+    return []
   }
 
   const blob = new Blob([model.arrayBuffer], { type: model.mimeType })
   const url = URL.createObjectURL(blob)
-  const extension = extractExtension(model.fileName)
+  const pluginExtension = inferPluginExtension(model)
 
   try {
-    const result = await SceneLoader.ImportMeshAsync('', '', url, scene, undefined, extension)
+    const result = await SceneLoader.ImportMeshAsync('', '', url, scene, undefined, pluginExtension)
     return result.meshes.filter((mesh) => mesh instanceof AbstractMesh)
   } catch (error) {
     console.warn('Failed to import model, using fallback mesh.', error)
-    return [createFallbackMesh(scene)]
+    return []
   } finally {
     URL.revokeObjectURL(url)
   }
-}
-
-function createFallbackMesh(scene: Scene) {
-  const mesh = MeshBuilder.CreateSphere('preview-sphere', { diameter: 2, segments: 32 }, scene)
-  const material = new StandardMaterial('preview-material', scene)
-  material.diffuseColor = new Color3(0.5, 0.7, 1)
-  material.specularColor = new Color3(1, 1, 1)
-  material.specularPower = 64
-  mesh.material = material
-  return mesh
 }
 
 function applyMode(meshes: AbstractMesh[], scene: Scene, mode: PreviewMode) {
@@ -401,9 +734,20 @@ function useGraphOutputs(nodeId: string) {
   return useGraphStore((state) => state.outputs[nodeId] ?? EMPTY_OUTPUTS)
 }
 
-function extractExtension(filename: string | undefined) {
-  if (!filename) return undefined
-  const dot = filename.lastIndexOf('.')
-  if (dot === -1) return undefined
-  return filename.slice(dot).toLowerCase()
+function inferPluginExtension(model: ModelValue): string | undefined {
+  if (model.fileName) {
+    const lower = model.fileName.trim().toLowerCase()
+    if (lower.endsWith('.glb')) return '.glb'
+    if (lower.endsWith('.gltf')) return '.gltf'
+    if (lower.endsWith('.obj')) return '.obj'
+    if (lower.endsWith('.stl')) return '.stl'
+  }
+
+  const mime = model.mimeType.toLowerCase()
+  if (mime.includes('glb') || mime === 'model/gltf-binary') return '.glb'
+  if (mime.includes('gltf')) return '.gltf'
+  if (mime.includes('obj')) return '.obj'
+  if (mime.includes('stl')) return '.stl'
+
+  return undefined
 }

@@ -38,6 +38,9 @@ export type NodeKind =
   | 'combineChannels'
   | 'showImage'
   | 'preview3d'
+  | 'generateTripoModel'
+  | 'saveModel'
+  | 'saveImage'
 
 export interface NodeCatalogEntry {
   kind: NodeKind
@@ -59,6 +62,7 @@ export interface SerializedNodeState {
     base64: string
   } | null
   mode?: PreviewMode
+  tripo?: TripoSerializedState
 }
 
 export interface SerializedNode {
@@ -83,4 +87,26 @@ export interface SerializedWorkflow {
   name?: string
   nodes: SerializedNode[]
   connections: SerializedConnection[]
+}
+
+export interface TripoParams {
+  seed: number
+  useFloat16: boolean
+  extraDepthLevel: number
+  numInferenceSteps: number
+  cfgScale: number
+  simplifyMesh: boolean
+  targetFaceNumber: number
+  useFlashDecoder: boolean
+  denseOctreeResolution: number
+  hierarchicalOctreeResolution: number
+  flashOctreeResolution: number
+  unloadModelAfterGeneration: boolean
+}
+
+export interface TripoSerializedState {
+  params: TripoParams
+  modelBase64?: string
+  modelMimeType?: string
+  modelFileName?: string
 }

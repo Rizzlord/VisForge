@@ -1,14 +1,27 @@
 from __future__ import annotations
 
 from collections import deque
+import base64
 from typing import Any, Dict, List, Optional
 
 import networkx as nx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from starlette.concurrency import run_in_threadpool
+
+from .triposg_service import TripoParams, triposg_service
 
 app = FastAPI(title="VisForge Execution API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -42,6 +55,40 @@ class ConnectionPayload(BaseModel):
 class GraphPayload(BaseModel):
     nodes: List[NodePayload] = Field(default_factory=list)
     connections: List[ConnectionPayload] = Field(default_factory=list)
+
+
+class TripoSGRequest(BaseModel):
+    image_data_url: str = Field(..., description="Image data URL (base64) to convert into a 3D model")
+    seed: int = Field(681589206, ge=0, le=0xFFFFFFFFFFFFFFFF)
+    use_float16: bool = True
+    extra_depth_level: int = Field(1, ge=0, le=4)
+    num_inference_steps: int = Field(50, ge=1, le=1000)
+    cfg_scale: float = Field(15.0, ge=0.0, le=50.0)
+    simplify_mesh: bool = False
+    target_face_number: int = Field(100000, ge=500, le=10_000_000)
+    use_flash_decoder: bool = True
+    dense_octree_resolution: int = Field(512, description="Dense octree resolution (power of two)")
+    hierarchical_octree_resolution: int = Field(512, description="Hierarchical octree base resolution (power of two)")
+    flash_octree_resolution: int = Field(512, description="Flash octree resolution (power of two)")
+    unload_model_after_generation: bool = True
+
+    @model_validator(mode="after")
+    def _validate_resolutions(self) -> 'TripoSGRequest':
+        for attr in (
+            "dense_octree_resolution",
+            "hierarchical_octree_resolution",
+            "flash_octree_resolution",
+        ):
+            value = getattr(self, attr)
+            if value <= 0 or (value & (value - 1)) != 0:
+                raise ValueError(f"{attr} must be a power-of-two positive integer")
+        return self
+
+
+class TripoSGResponse(BaseModel):
+    glb_base64: str
+    file_name: str = "tripo-model.glb"
+    mime_type: str = "model/gltf-binary"
 
 
 @app.post("/execute")
@@ -94,3 +141,34 @@ async def execution_progress(websocket: WebSocket) -> None:
             await websocket.send_json(phases.popleft())
     except WebSocketDisconnect:
         return
+
+
+@app.post("/triposg/generate", response_model=TripoSGResponse)
+async def triposg_generate(request: TripoSGRequest) -> TripoSGResponse:
+    params = TripoParams(
+        seed=request.seed,
+        use_float16=request.use_float16,
+        extra_depth_level=request.extra_depth_level,
+        num_inference_steps=request.num_inference_steps,
+        cfg_scale=request.cfg_scale,
+        simplify_mesh=request.simplify_mesh,
+        target_face_number=request.target_face_number,
+        use_flash_decoder=request.use_flash_decoder,
+        dense_octree_resolution=request.dense_octree_resolution,
+        hierarchical_octree_resolution=request.hierarchical_octree_resolution,
+        flash_octree_resolution=request.flash_octree_resolution,
+        unload_model_after_generation=request.unload_model_after_generation,
+    )
+
+    async with triposg_service.lock:
+        try:
+            glb_bytes = await run_in_threadpool(
+                triposg_service.generate,
+                request.image_data_url,
+                params,
+            )
+        except Exception as exc:  # pragma: no cover - runtime error surface
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    glb_base64 = base64.b64encode(glb_bytes).decode("utf-8")
+    return TripoSGResponse(glb_base64=glb_base64)

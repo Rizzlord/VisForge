@@ -19,6 +19,12 @@ import {
   ModelUploadControlView,
   Preview3DControl,
   Preview3DControlView,
+  TripoGenerationControl,
+  TripoGenerationControlView,
+  SaveModelControl,
+  SaveModelControlView,
+  SaveImageControl,
+  SaveImageControlView,
 } from './controls'
 import { useGraphStore } from './store'
 import type {
@@ -132,6 +138,44 @@ class Preview3DNode extends FoldableNode {
   }
 }
 
+class GenerateTripoModelNode extends FoldableNode {
+  readonly generator: TripoGenerationControl
+
+  constructor() {
+    super('Generate Tripo Model', 'generateTripoModel')
+    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
+    this.addOutput('model', new ClassicPreset.Output(modelSocket, 'Model'))
+    this.generator = new TripoGenerationControl(this.id)
+    this.addControl('generate', this.generator)
+    this.width = 420
+    this.height = 320
+  }
+}
+
+class SaveModelNode extends FoldableNode {
+  readonly saver: SaveModelControl
+
+  constructor() {
+    super('Save Model', 'saveModel')
+    this.addInput('model', new ClassicPreset.Input(modelSocket, 'Model'))
+    this.addOutput('model', new ClassicPreset.Output(modelSocket, 'Model'))
+    this.saver = new SaveModelControl(this.id)
+    this.addControl('saver', this.saver)
+  }
+}
+
+class SaveImageNode extends FoldableNode {
+  readonly saver: SaveImageControl
+
+  constructor() {
+    super('Save Image', 'saveImage')
+    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
+    this.addOutput('image', new ClassicPreset.Output(imageSocket, 'Image'))
+    this.saver = new SaveImageControl(this.id)
+    this.addControl('saver', this.saver)
+  }
+}
+
 const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   loadImage: () => new LoadImageNode(),
   loadModel: () => new LoadModelNode(),
@@ -139,6 +183,9 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   combineChannels: () => new CombineChannelsNode(),
   showImage: () => new ShowImageNode(),
   preview3d: () => new Preview3DNode(),
+  generateTripoModel: () => new GenerateTripoModelNode(),
+  saveModel: () => new SaveModelNode(),
+  saveImage: () => new SaveImageNode(),
 }
 
 const DEFAULT_NODE_WIDTH = 280
@@ -169,6 +216,15 @@ const NODE_CATALOG: NodeCatalogCategory[] = [
     entries: [
       { kind: 'showImage', label: 'Show Image', description: 'Preview the final image.' },
       { kind: 'preview3d', label: 'Preview 3D', description: 'Inspect a model in Babylon.js.' },
+      { kind: 'saveModel', label: 'Save Model', description: 'Download model as GLB.' },
+      { kind: 'saveImage', label: 'Save Image', description: 'Download image as PNG.' },
+    ],
+  },
+  {
+    id: '3d-generation',
+    label: '3D Generation',
+    entries: [
+      { kind: 'generateTripoModel', label: 'Generate Tripo Model', description: 'Create 3D geometry from a reference image.' },
     ],
   },
 ]
@@ -190,6 +246,7 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
   const reactRender = new ReactPlugin<Schemes, AreaExtra>({ createRoot })
 
   let scheduleEvaluation: () => void = () => {}
+  let removeNodeById: (id: string) => Promise<void> = async () => {}
 
   reactRender.addPreset(
     ReactPresets.classic.setup({
@@ -212,6 +269,9 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
                   nodeInstance.height = height
                   await area.resize(nodeInstance.id, width, height)
                   await area.update('node', nodeInstance.id)
+                }}
+                onRemove={async () => {
+                  await removeNodeById(nodeInstance.id)
                 }}
               />
             )
@@ -270,6 +330,15 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
 
     return result
   })
+
+  removeNodeById = async (nodeId: string) => {
+    try {
+      await editor.removeNode(nodeId)
+      scheduleEvaluation()
+    } catch (error) {
+      console.warn('Failed to remove node', nodeId, error)
+    }
+  }
 
   let creationOffset = 0
 
@@ -446,6 +515,12 @@ function captureNodeState(node: FoldableNode): SerializedNodeState {
     }
   }
 
+  if (node instanceof GenerateTripoModelNode) {
+    return {
+      tripo: node.generator.serialize(),
+    }
+  }
+
   return {}
 }
 
@@ -471,6 +546,10 @@ function applyNodeState(node: FoldableNode, state?: SerializedNodeState) {
   if (node instanceof Preview3DNode && state.mode) {
     node.preview.mode = state.mode
     ;(node.preview as any).notify?.()
+  }
+
+  if (node instanceof GenerateTripoModelNode && state.tripo) {
+    node.generator.applySerialized(state.tripo)
   }
 }
 
@@ -510,8 +589,9 @@ function UnrealNode(props: {
   onToggle: () => Promise<void>
   onGraphChange: () => void
   onResize: (width: number, height: number) => Promise<void> | void
+  onRemove: () => void
 }) {
-  const { node, collapsed, emit, onToggle, onGraphChange, onResize } = props
+  const { node, collapsed, emit, onToggle, onGraphChange, onResize, onRemove } = props
   const [size, setSize] = useState(() => ({
     width: node.width ?? DEFAULT_NODE_WIDTH,
     height: node.height ?? DEFAULT_NODE_HEIGHT,
@@ -575,6 +655,17 @@ function UnrealNode(props: {
           {collapsed ? '+' : '–'}
         </button>
         <span className="unreal-node__title">{node.label}</span>
+        <button
+          type="button"
+          className="unreal-node__close"
+          onClick={(event) => {
+            event.stopPropagation()
+            void onRemove()
+          }}
+          aria-label="Remove node"
+        >
+          ×
+        </button>
       </header>
       {!collapsed && (
         <div className="unreal-node__body" style={{ minHeight: `${Math.max(size.height, MIN_NODE_HEIGHT)}px` }}>
@@ -654,7 +745,7 @@ function renderControlComponent(control: ClassicPreset.Control, onGraphChange: (
   }
 
   if (control instanceof ChannelsPreviewControl) {
-    return <ChannelsPreviewControlView control={control} />
+    return <ChannelsPreviewControlView control={control} onGraphChange={onGraphChange} />
   }
 
   if (control instanceof ImageDisplayControl) {
@@ -663,6 +754,18 @@ function renderControlComponent(control: ClassicPreset.Control, onGraphChange: (
 
   if (control instanceof Preview3DControl) {
     return <Preview3DControlView control={control} fill />
+  }
+
+  if (control instanceof TripoGenerationControl) {
+    return <TripoGenerationControlView control={control} onGraphChange={onGraphChange} />
+  }
+
+  if (control instanceof SaveModelControl) {
+    return <SaveModelControlView control={control} />
+  }
+
+  if (control instanceof SaveImageControl) {
+    return <SaveImageControlView control={control} />
   }
 
   return null
@@ -762,6 +865,27 @@ async function evaluateNode(
   if (node instanceof Preview3DNode) {
     const model = inputs.model as ModelValue | undefined
     return model ? { model } : {}
+  }
+
+  if (node instanceof GenerateTripoModelNode) {
+    const control = node.controls.generate as TripoGenerationControl | undefined
+    const image = inputs.image as ImageValue | undefined
+    control?.setInputImage(image)
+    return control?.model ? { model: control.model } : {}
+  }
+
+  if (node instanceof SaveModelNode) {
+    const control = node.controls.saver as SaveModelControl | undefined
+    const model = inputs.model as ModelValue | undefined
+    control?.setModel(model)
+    return model ? { model } : {}
+  }
+
+  if (node instanceof SaveImageNode) {
+    const control = node.controls.saver as SaveImageControl | undefined
+    const image = inputs.image as ImageValue | undefined
+    control?.setImage(image)
+    return image ? { image } : {}
   }
 
   return {}
