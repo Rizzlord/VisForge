@@ -5,6 +5,7 @@ import contextlib
 import gc
 import io
 import json
+import logging
 import os
 import random
 import sys
@@ -20,6 +21,9 @@ from huggingface_hub import snapshot_download
 from PIL import Image
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -65,6 +69,7 @@ def configure_caches(weights_root: Path) -> None:
 def ensure_paint_weights(weights_root: Path) -> Path:
     target_dir = weights_root / "tencent-Hunyuan3D-2.1"
     target_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Ensuring Hunyuan paint weights in %s", target_dir)
     snapshot_download(
         repo_id="tencent/Hunyuan3D-2.1",
         local_dir=str(target_dir),
@@ -86,6 +91,7 @@ def ensure_realesrgan(weights_root: Path) -> Path:
             "RealESRGAN checkpoint not found. Place RealESRGAN_x4plus.pth in "
             f"{target_path} before running texture generation."
         )
+    logger.info("Using RealESRGAN checkpoint at %s", target_path)
     return target_path
 
 
@@ -106,6 +112,7 @@ def decode_model(glb_base64: str, output_dir: Path) -> Path:
         mesh = mesh.dump(concatenate=True)
     obj_path = output_dir / "input_mesh.obj"
     mesh.export(str(obj_path))
+    logger.info("Decoded GLB -> OBJ at %s", obj_path)
     return obj_path
 
 
@@ -318,6 +325,15 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     config.custom_pipeline = "hunyuanpaintpbr"
     config.realesrgan_ckpt_path = str(realesrgan_path)
 
+    logger.info(
+        "Initialising paint pipeline (views=%d, resolution=%d, steps=%d, guidance=%.2f, target_faces=%d)",
+        params.max_view_count,
+        params.view_resolution,
+        params.num_inference_steps,
+        params.guidance_scale,
+        params.target_face_count,
+    )
+
     paint_pipeline = Hunyuan3DPaintPipeline(config)
     params.seed = final_seed
 
@@ -345,6 +361,11 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError("Texture generation requires an input reference image")
 
         output_obj_path = tmpdir / "textured_mesh.obj"
+        logger.info(
+            "Running paint pipeline (remesh=%s, target_faces=%d) ...",
+            params.remesh_mesh,
+            params.target_face_count,
+        )
         paint_pipeline(
             mesh_path=str(obj_path),
             image_path=reference_image,
@@ -353,6 +374,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
             save_glb=False,
             target_face_count=params.target_face_count,
         )
+        logger.info("Paint pipeline completed, textured OBJ at %s", output_obj_path)
 
         base_path = output_obj_path.with_suffix("")
         albedo_path = base_path.with_suffix(".jpg")
@@ -379,6 +401,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
             },
             textured_glb_path,
         )
+        logger.info("Created textured GLB at %s", textured_glb_path)
 
         glb_bytes = textured_glb_path.read_bytes()
         albedo_base64, albedo_width, albedo_height = image_to_base64(albedo_path)

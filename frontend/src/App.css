@@ -121,6 +121,12 @@
   transition: all 0.2s ease;
 }
 
+.header-actions button.active {
+  background: rgba(255, 140, 20, 0.4);
+  border-color: rgba(255, 172, 66, 0.85);
+  color: #fff6ed;
+}
+
 .header-actions button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -134,6 +140,111 @@
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+.logs-pane {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: width 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+  border-left: 1px solid rgba(255, 143, 37, 0.18);
+  background: linear-gradient(180deg, rgba(24, 24, 25, 0.96), rgba(16, 16, 17, 0.98));
+  display: flex;
+  flex-direction: column;
+  color: #f4f5f7;
+}
+
+.logs-pane.open {
+  width: 360px;
+  padding: 24px 20px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.logs-pane__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.logs-pane__header h2 {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 185, 120, 0.85);
+}
+
+.logs-pane__actions button {
+  background: rgba(47, 48, 50, 0.82);
+  border: 1px solid rgba(255, 140, 20, 0.35);
+  border-radius: 8px;
+  color: rgba(236, 236, 236, 0.88);
+  font-size: 0.72rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.logs-pane__actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.logs-pane__body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: 'Fira Code', 'Source Code Pro', monospace;
+  scrollbar-width: thin;
+}
+
+.logs-pane__empty {
+  font-size: 0.75rem;
+  color: rgba(219, 219, 219, 0.55);
+  margin: 0;
+}
+
+.logs-entry {
+  border: 1px solid rgba(255, 143, 37, 0.25);
+  border-radius: 10px;
+  background: rgba(35, 36, 37, 0.85);
+  padding: 10px 12px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.logs-entry__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.68rem;
+  color: rgba(216, 216, 216, 0.7);
+  margin-bottom: 6px;
+}
+
+.logs-entry__message {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  word-break: break-word;
+  color: rgba(244, 245, 247, 0.9);
+}
+
+.logs-entry__level {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255, 185, 120, 0.9);
+}
+
+.logs-entry--error {
+  border-color: rgba(255, 99, 71, 0.45);
+}
+
+.logs-entry--warning {
+  border-color: rgba(255, 196, 0, 0.45);
 }
 
 .library-pane {

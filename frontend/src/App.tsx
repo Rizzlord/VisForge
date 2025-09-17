@@ -20,8 +20,17 @@ interface WorkflowStatePayload {
   }>
 }
 
+interface BackendLogEntry {
+  id: number
+  level: string
+  logger: string
+  message: string
+  created: number
+}
+
 const LOCAL_WORKFLOWS_KEY = 'visforge.workflows'
 const LOCAL_ACTIVE_KEY = 'visforge.activeWorkflowId'
+const LOG_POLL_INTERVAL = 2000
 
 function createId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -101,14 +110,22 @@ function App() {
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null)
   const [isBootstrapping, setBootstrapping] = useState(true)
   const [isPersisting, setPersisting] = useState(false)
+  const [showLogs, setShowLogs] = useState(false)
+  const [logs, setLogs] = useState<BackendLogEntry[]>([])
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const mountedRef = useRef(true)
   const bootstrappedRef = useRef(false)
+  const logTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const latestLogIdRef = useRef(0)
 
   useEffect(() => {
     return () => {
       mountedRef.current = false
+      if (logTimerRef.current) {
+        clearInterval(logTimerRef.current)
+        logTimerRef.current = null
+      }
     }
   }, [])
 
@@ -400,6 +417,15 @@ function App() {
     [importWorkflowFiles],
   )
 
+  const handleToggleLogs = useCallback(() => {
+    setShowLogs((prev) => !prev)
+  }, [])
+
+  const handleClearLogs = useCallback(() => {
+    latestLogIdRef.current = 0
+    setLogs([])
+  }, [])
+
   useEffect(() => {
     const handleDragOver = (event: DragEvent) => {
       if (!event.dataTransfer?.types?.includes('Files')) return
@@ -424,6 +450,56 @@ function App() {
       window.removeEventListener('drop', handleDrop)
     }
   }, [importWorkflowFiles])
+
+  useEffect(() => {
+    if (!showLogs) {
+      if (logTimerRef.current) {
+        clearInterval(logTimerRef.current)
+        logTimerRef.current = null
+      }
+      return
+    }
+
+    let isActive = true
+
+    const fetchLogs = async () => {
+      try {
+        const response = await fetch(`${BACKEND_BASE}/logs?since=${latestLogIdRef.current}`)
+        if (!response.ok) return
+        const data = (await response.json()) as { logs?: BackendLogEntry[]; latest?: number }
+        if (!isActive) return
+        const newLogs = Array.isArray(data.logs) ? data.logs : []
+        if (newLogs.length) {
+          latestLogIdRef.current = data.latest ?? latestLogIdRef.current
+          setLogs((prev) => {
+            const combined = [...prev, ...newLogs]
+            return combined.slice(-1000)
+          })
+        }
+      } catch (error) {
+        console.error('Failed to fetch logs', error)
+      }
+    }
+
+    fetchLogs()
+    logTimerRef.current = setInterval(fetchLogs, LOG_POLL_INTERVAL)
+
+    return () => {
+      isActive = false
+      if (logTimerRef.current) {
+        clearInterval(logTimerRef.current)
+        logTimerRef.current = null
+      }
+    }
+  }, [showLogs])
+
+  const formatLogTime = useCallback((timestamp: number) => {
+    try {
+      return new Date(timestamp * 1000).toLocaleTimeString()
+    } catch (error) {
+      return ''
+    }
+  }, [])
 
   return (
     <div className="app-shell">
@@ -472,6 +548,9 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
+          <button type="button" className={showLogs ? 'active' : ''} onClick={handleToggleLogs}>
+            {showLogs ? 'Hide Logs' : 'Logs'}
+          </button>
           <button
             type="button"
             onClick={() => void handleOpenLoadDialog()}
@@ -529,6 +608,32 @@ function App() {
         <section className="canvas-pane">
           <NodeCanvas onReady={setEditorSetup} />
         </section>
+        <aside className={`logs-pane${showLogs ? ' open' : ''}`} aria-hidden={!showLogs}>
+          <div className="logs-pane__header">
+            <h2>Generator Logs</h2>
+            <div className="logs-pane__actions">
+              <button type="button" onClick={handleClearLogs} disabled={!logs.length}>
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="logs-pane__body">
+            {logs.length ? (
+              logs.map((entry) => (
+                <div key={entry.id} className={`logs-entry logs-entry--${entry.level.toLowerCase()}`}>
+                  <div className="logs-entry__meta">
+                    <span className="logs-entry__time">{formatLogTime(entry.created)}</span>
+                    <span className="logs-entry__level">{entry.level}</span>
+                    <span className="logs-entry__logger">{entry.logger}</span>
+                  </div>
+                  <div className="logs-entry__message">{entry.message}</div>
+                </div>
+              ))
+            ) : (
+              <p className="logs-pane__empty">Logs will appear here while generators run.</p>
+            )}
+          </div>
+        </aside>
       </main>
     </div>
   )

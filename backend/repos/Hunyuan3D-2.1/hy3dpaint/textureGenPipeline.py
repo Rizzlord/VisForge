@@ -19,6 +19,7 @@ import trimesh
 import numpy as np
 from PIL import Image
 from typing import List
+import logging
 from DifferentiableRenderer.MeshRender import MeshRender
 from utils.simplify_mesh_utils import remesh_mesh
 from utils.multiview_utils import multiviewDiffusionNet
@@ -32,6 +33,8 @@ warnings.filterwarnings("ignore")
 from diffusers.utils import logging as diffusers_logging
 
 diffusers_logging.set_verbosity(50)
+
+logger = logging.getLogger(__name__)
 
 
 class Hunyuan3DPaintConfig:
@@ -99,6 +102,12 @@ class Hunyuan3DPaintPipeline:
         save_glb=True,
         target_face_count=None,
     ):
+        logger.info(
+            "HyPaint pipeline starting (mesh=%s, remesh=%s, target_faces=%s)",
+            mesh_path,
+            use_remesh,
+            target_face_count,
+        )
         """Generate texture for 3D mesh using multiview diffusion"""
         # Ensure image_prompt is a list
         if isinstance(image_path, str):
@@ -116,7 +125,9 @@ class Hunyuan3DPaintPipeline:
 
         if use_remesh:
             processed_mesh_path = os.path.join(path, "white_mesh_remesh.obj")
+            logger.info("HyPaint remeshing mesh to ~%d faces", target_faces)
             remesh_mesh(mesh_path, processed_mesh_path, target_count=target_faces)
+            logger.info("HyPaint remesh completed: %s", processed_mesh_path)
         else:
             processed_mesh_path = mesh_path
 
@@ -127,6 +138,7 @@ class Hunyuan3DPaintPipeline:
         # Load mesh
         mesh = trimesh.load(processed_mesh_path)
         mesh = mesh_uv_wrap(mesh)
+        logger.info("HyPaint mesh loaded and UV-wrapped")
         self.render.load_mesh(mesh=mesh)
 
         ########### View Selection #########
@@ -135,6 +147,9 @@ class Hunyuan3DPaintPipeline:
             self.config.candidate_camera_azims,
             self.config.candidate_view_weights,
             self.config.max_selected_view_num,
+        )
+        logger.info(
+            "HyPaint selected %d views for baking", len(selected_camera_elevs)
         )
 
         normal_maps = self.view_processor.render_normal_multiview(
@@ -155,6 +170,7 @@ class Hunyuan3DPaintPipeline:
         image_style = [image.convert("RGB") for image in image_style]
 
         ###########  Multiview  ##########
+        logger.info("HyPaint running multiview diffusion ...")
         multiviews_pbr = self.models["multiview_model"](
             image_style,
             normal_maps + position_maps,
@@ -162,6 +178,7 @@ class Hunyuan3DPaintPipeline:
             custom_view_size=self.config.resolution,
             resize_input=True,
         )
+        logger.info("HyPaint multiview diffusion completed")
         ###########  Enhance  ##########
         enhance_images = {}
         enhance_images["albedo"] = copy.deepcopy(multiviews_pbr["albedo"])
@@ -170,6 +187,7 @@ class Hunyuan3DPaintPipeline:
         for i in range(len(enhance_images["albedo"])):
             enhance_images["albedo"][i] = self.models["super_model"](enhance_images["albedo"][i])
             enhance_images["mr"][i] = self.models["super_model"](enhance_images["mr"][i])
+        logger.info("HyPaint super-resolution enhancement finished")
 
         ###########  Bake  ##########
         for i in range(len(enhance_images)):
@@ -194,9 +212,11 @@ class Hunyuan3DPaintPipeline:
             self.render.set_texture_mr(texture_mr)
 
         self.render.save_mesh(output_mesh_path, downsample=True)
+        logger.info("HyPaint baked textures saved to %s", output_mesh_path)
 
         if save_glb:
             convert_obj_to_glb(output_mesh_path, output_mesh_path.replace(".obj", ".glb"))
             output_glb_path = output_mesh_path.replace(".obj", ".glb")
+            logger.info("HyPaint converted OBJ to GLB: %s", output_glb_path)
 
         return output_mesh_path

@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, List, Literal, Optional
 
 import networkx as nx
@@ -21,6 +22,42 @@ from .hunyuan_service import HunyuanParams, hunyuan_service
 from .hunyuan_texture_service import HunyuanTextureParams, hunyuan_texture_service
 from .rmbg_service import rmbg_service
 from PIL import Image
+
+LOG_BUFFER: deque[dict[str, Any]] = deque(maxlen=1000)
+LOG_LOCK = Lock()
+LOG_COUNTER = 0
+
+
+class InMemoryLogHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        global LOG_COUNTER
+        message = record.getMessage()
+        with LOG_LOCK:
+            LOG_COUNTER += 1
+            LOG_BUFFER.append(
+                {
+                    "id": LOG_COUNTER,
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "message": message,
+                    "created": record.created,
+                }
+            )
+
+
+def _install_log_handler() -> None:
+    root_logger = logging.getLogger()
+    if any(isinstance(handler, InMemoryLogHandler) for handler in root_logger.handlers):
+        return
+    handler = InMemoryLogHandler()
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+    if root_logger.level > logging.INFO:
+        root_logger.setLevel(logging.INFO)
+
+
+_install_log_handler()
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +253,14 @@ async def get_workflow_state_endpoint() -> WorkflowState:
 async def put_workflow_state_endpoint(state: WorkflowState) -> WorkflowState:
     validated = WorkflowState.model_validate(state)
     return await run_in_threadpool(_save_workflow_state, validated)
+
+
+@app.get("/logs")
+async def get_logs(since: int = 0) -> Dict[str, Any]:
+    with LOG_LOCK:
+        entries = [entry for entry in LOG_BUFFER if entry["id"] > since]
+        latest = LOG_BUFFER[-1]["id"] if LOG_BUFFER else since
+    return {"logs": entries, "latest": latest}
 
 
 class TripoSGRequest(BaseModel):

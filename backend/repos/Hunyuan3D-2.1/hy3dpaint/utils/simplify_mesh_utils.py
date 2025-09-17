@@ -12,12 +12,17 @@
 # fine-tuning enabling code and other elements of the foregoing made publicly available
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
+import logging
 import trimesh
 import pymeshlab
 
+logger = logging.getLogger(__name__)
+
 
 def remesh_mesh(mesh_path, remesh_path, target_count=40000):
+    logger.info("HyPaint remesh_mesh start: target_count=%d", target_count)
     mesh_simplify_trimesh(mesh_path, remesh_path, target_count=target_count)
+    logger.info("HyPaint remesh_mesh finished: %s", remesh_path)
 
 
 def mesh_simplify_trimesh(inputpath, outputpath, target_count=40000):
@@ -33,9 +38,16 @@ def mesh_simplify_trimesh(inputpath, outputpath, target_count=40000):
     face_num = courent.faces.shape[0]
 
     if face_num > target_count:
+        reduction = target_count / face_num
+        logger.info(
+            "HyPaint simplify mesh: faces=%d target=%d reduction=%.4f",
+            face_num,
+            target_count,
+            reduction,
+        )
         try:
             courent = courent.simplify_quadric_decimation(target_count=target_count)
-        except Exception:
-            # fall back to original mesh if simplification fails
-            pass
+        except Exception as exc:
+            logger.warning("HyPaint simplify_quadric_decimation failed: %s", exc)
     courent.export(outputpath)
+    logger.info("HyPaint mesh_simplify_trimesh exported %s", outputpath)

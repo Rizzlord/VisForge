@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -13,6 +14,8 @@ WEIGHTS_ROOT = REPO_ROOT / "weights"
 WEIGHTS_ROOT.mkdir(parents=True, exist_ok=True)
 
 PROCESS_TIMEOUT = 60 * 60  # 60 minute safety timeout
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,6 +38,13 @@ class HunyuanTextureService:
     @property
     def lock(self) -> asyncio.Lock:
         return self._lock
+
+    async def _log_stream(self, stream: asyncio.StreamReader, prefix: str) -> None:
+        while True:
+            line = await stream.readline()
+            if not line:
+                break
+            logger.info("[%s] %s", prefix, line.decode("utf-8", errors="ignore").rstrip())
 
     def _serialize_request(
         self,
@@ -70,15 +80,22 @@ class HunyuanTextureService:
             stderr=asyncio.subprocess.PIPE,
         )
 
-        assert process.stdin and process.stdout
+        assert process.stdin and process.stdout and process.stderr
 
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(input=request_json.encode("utf-8")),
-            timeout=PROCESS_TIMEOUT,
-        )
+        process.stdin.write(request_json.encode("utf-8"))
+        await process.stdin.drain()
+        process.stdin.close()
+
+        stderr_task = asyncio.create_task(self._log_stream(process.stderr, "hunyuan-texture"))
+
+        try:
+            stdout = await asyncio.wait_for(process.stdout.read(), timeout=PROCESS_TIMEOUT)
+            await asyncio.wait_for(process.wait(), timeout=1)
+        finally:
+            await stderr_task
 
         if process.returncode != 0:
-            detail = stderr.decode("utf-8", errors="ignore") or "Hunyuan texture worker failed"
+            detail = "Hunyuan texture worker failed"
             raise RuntimeError(detail)
 
         response = json.loads(stdout.decode("utf-8"))
