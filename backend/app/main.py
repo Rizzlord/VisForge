@@ -162,8 +162,7 @@ async def triposg_generate(request: TripoSGRequest) -> TripoSGResponse:
 
     async with triposg_service.lock:
         try:
-            glb_bytes = await run_in_threadpool(
-                triposg_service.generate,
+            glb_bytes = await triposg_service.generate(
                 request.image_data_url,
                 params,
             )
