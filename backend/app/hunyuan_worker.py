@@ -74,12 +74,14 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     weights_root = Path(payload["weights_root"])
     repo_root = Path(payload["repo_root"])
 
+    ensure_paths([str(Path(__file__).resolve().parent)])
     ensure_paths([str(repo_root), str(repo_root / "hy3dshape"), str(repo_root / "hy3dpaint")])
     apply_torchvision_fix(repo_root)
 
     from hy3dshape import Hunyuan3DDiTFlowMatchingPipeline  # type: ignore
     from hy3dshape.pipelines import export_to_trimesh  # type: ignore
     from hy3dshape.rembg import BackgroundRemover  # type: ignore
+    from hunyuan_image import prepare_input_image
 
     params = WorkerParams(
         seed=int(payload["seed"]),
@@ -110,9 +112,13 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
 
     remover = BackgroundRemover()
 
-    image = decode_image(payload["image_data_url"])
-    if params.remove_background or image.mode == "RGB":
-        image = remover(image.convert("RGB"))
+    raw_image = decode_image(payload["image_data_url"])
+    image = prepare_input_image(
+        raw_image,
+        remover=remover,
+        remove_background=params.remove_background,
+        apply_preparation=True,
+    )
 
     final_seed = params.seed
     if params.randomize_seed:

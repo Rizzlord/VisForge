@@ -8,9 +8,11 @@ VisForge is a playground for building a ComfyUI-inspired visual node editor with
 - Unreal‑style node styling with collapsible bodies and floating connection orbs.
 - Node library sidebar grouped by category for quick drag-free placement.
 - Workflow tabs with local persistence (save, save‑as, rename) backed by `localStorage`.
-- Prebuilt nodes: **Load Image**, **Load Model**, **Separate Channels**, **Combine Channels**, **Show Image**, **Preview 3D**, **Generate Tripo Model**, **Generate Hy 2.1 Model**, **Save Model**, and **Save Image**.
+- Prebuilt nodes: **Load Image**, **Load Model**, **Separate Channels**, **Combine Channels**, **Show Image**, **Preview 3D**, **Generate Tripo Model**, **Generate Hy 2.1 Model**, **Remove Background**, **Save Model**, and **Save Image**.
 - New **Generate Tripo Model** node that submits an image to the backend TripoSG pipeline and returns a GLB for downstream preview.
 - Added **Generate Hy 2.1 Model** node backed by the Hunyuan3D-2.1 image-to-3D pipeline with configurable MC/DMC surface extraction.
+- Background cleanup can be done inline via the **Remove Background** node before handing images to generation models.
+- New **Remove Background** node wraps rembg with RGB/RGBA/transparent or custom-color compositing for fast cleanup workflows.
 - Image pipeline helpers that split/merge RGBA channels directly in the browser.
 - Babylon.js viewport with switchable **Base**, **Wire**, and **Norm** shading modes and smarter GLB/GLTF loading.
 

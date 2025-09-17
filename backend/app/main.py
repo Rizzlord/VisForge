@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import base64
+import io
 from typing import Any, Dict, List, Literal, Optional
 
 import networkx as nx
@@ -13,6 +14,10 @@ from starlette.concurrency import run_in_threadpool
 
 from .triposg_service import TripoParams, triposg_service
 from .hunyuan_service import HunyuanParams, hunyuan_service
+from PIL import Image
+from rembg import remove, new_session
+
+REMBG_SESSION = new_session()
 
 app = FastAPI(title="VisForge Execution API", version="0.1.0")
 
@@ -224,3 +229,87 @@ async def hunyuan_generate(request: HunyuanRequest) -> HunyuanResponse:
         mime_type=str(metadata.get("mime_type", "model/gltf-binary")),
         seed=int(metadata.get("seed", request.seed)),
     )
+
+
+class RemoveBackgroundRequest(BaseModel):
+    image_data_url: str = Field(..., description="Image data URL (base64) to process")
+    mode: Literal['rgb', 'rgba'] = Field('rgba', description="Output mode")
+    transparent: bool = Field(True, description="Return transparent background (ignored for RGB)")
+    color: Optional[str] = Field('#ffffff', description="Hex color for non-transparent background")
+
+    @model_validator(mode="after")
+    def _validate_color(self) -> 'RemoveBackgroundRequest':
+        if not self.transparent:
+            if not self.color or not isinstance(self.color, str) or not self.color.startswith('#') or len(self.color) != 7:
+                raise ValueError("Provide a color in #RRGGBB format when transparent is disabled")
+        return self
+
+
+class RemoveBackgroundResponse(BaseModel):
+    image_base64: str
+    file_name: str = "removed-background.png"
+    mime_type: str = "image/png"
+    width: int
+    height: int
+
+
+def _decode_image(data_url: str) -> Image.Image:
+    payload = data_url
+    if 'base64,' in payload:
+        _, payload = payload.split('base64,', 1)
+    image_bytes = base64.b64decode(payload)
+    return Image.open(io.BytesIO(image_bytes))
+
+
+def _composite_to_rgb(image: Image.Image, color: tuple[int, int, int]) -> Image.Image:
+    if image.mode != 'RGBA':
+        image = image.convert('RGBA')
+    background = Image.new('RGB', image.size, color)
+    alpha = image.split()[3]
+    background.paste(image.convert('RGB'), mask=alpha)
+    return background
+
+
+def _parse_hex_color(value: Optional[str]) -> tuple[int, int, int]:
+    if not value:
+        return (255, 255, 255)
+    hex_value = value.lstrip('#')
+    return tuple(int(hex_value[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _process_background(request: RemoveBackgroundRequest) -> RemoveBackgroundResponse:
+    pil_image = _decode_image(request.image_data_url)
+    image_bytes = io.BytesIO()
+    pil_image.save(image_bytes, format='PNG')
+    removed_bytes = remove(image_bytes.getvalue(), session=REMBG_SESSION)
+    removed_image = Image.open(io.BytesIO(removed_bytes)).convert('RGBA')
+
+    if request.transparent:
+        output_image = removed_image
+        if request.mode == 'rgb':
+            output_image = removed_image  # transparency implies RGBA output
+    else:
+        color = _parse_hex_color(request.color)
+        flattened = _composite_to_rgb(removed_image, color)
+        if request.mode == 'rgb':
+            output_image = flattened
+        else:
+            output_image = flattened.convert('RGBA')
+
+    buffer = io.BytesIO()
+    output_image.save(buffer, format='PNG')
+    encoded = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+    return RemoveBackgroundResponse(
+        image_base64=encoded,
+        width=output_image.width,
+        height=output_image.height,
+    )
+
+
+@app.post("/image/remove_background", response_model=RemoveBackgroundResponse)
+async def remove_background_endpoint(request: RemoveBackgroundRequest) -> RemoveBackgroundResponse:
+    try:
+        return await run_in_threadpool(_process_background, request)
+    except Exception as exc:  # pragma: no cover - runtime error surface
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

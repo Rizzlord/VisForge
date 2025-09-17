@@ -25,6 +25,8 @@ import type {
   PreviewMode,
   HunyuanParams,
   HunyuanSerializedState,
+  RemoveBgParams,
+  RemoveBgSerializedState,
   TripoParams,
   TripoSerializedState,
 } from './types'
@@ -70,6 +72,12 @@ const DEFAULT_HUNYUAN_PARAMS: HunyuanParams = {
   numChunks: 8000,
   mcAlgo: 'dmc',
   unloadModelAfterGeneration: true,
+}
+
+const DEFAULT_REMOVE_BG_PARAMS: RemoveBgParams = {
+  mode: 'rgba',
+  transparent: true,
+  color: '#ffffff',
 }
 
 export class ReactiveControl extends ClassicPreset.Control {
@@ -344,6 +352,106 @@ export class HunyuanGenerationControl extends ReactiveControl {
       onGraphChange()
     } catch (error) {
       this.isGenerating = false
+      this.error = error instanceof Error ? error.message : 'Unknown error'
+      this.notify()
+    }
+  }
+}
+
+export class BackgroundRemovalControl extends ReactiveControl {
+  params: RemoveBgParams = { ...DEFAULT_REMOVE_BG_PARAMS }
+  image: ImageValue | null = null
+  isProcessing = false
+  error: string | null = null
+  private inputImage: ImageValue | null = null
+
+  setInputImage(image: ImageValue | undefined) {
+    this.inputImage = image ?? null
+    this.notify()
+  }
+
+  hasInputImage(): boolean {
+    return this.inputImage !== null
+  }
+
+  updateParam<K extends keyof RemoveBgParams>(key: K, value: RemoveBgParams[K]) {
+    this.params = { ...this.params, [key]: value }
+    this.notify()
+  }
+
+  applySerialized(state?: RemoveBgSerializedState) {
+    if (!state) return
+    this.params = { ...DEFAULT_REMOVE_BG_PARAMS, ...state.params }
+    if (state.imageDataUrl) {
+      this.image = {
+        kind: 'image',
+        dataUrl: state.imageDataUrl,
+        fileName: state.fileName ?? 'removed-background.png',
+        width: state.width,
+        height: state.height,
+      }
+    }
+    this.notify()
+  }
+
+  serialize(): RemoveBgSerializedState {
+    const base: RemoveBgSerializedState = { params: { ...this.params } }
+    if (this.image) {
+      base.imageDataUrl = this.image.dataUrl
+      base.fileName = this.image.fileName
+      base.width = this.image.width
+      base.height = this.image.height
+    }
+    return base
+  }
+
+  async convert(onGraphChange: () => void) {
+    if (!this.inputImage) {
+      this.error = 'Connect an image input before converting.'
+      this.notify()
+      return
+    }
+
+    this.isProcessing = true
+    this.error = null
+    this.notify()
+
+    try {
+      const response = await fetch(`${DEFAULT_BACKEND_BASE}/image/remove_background`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_data_url: this.inputImage.dataUrl,
+          mode: this.params.mode,
+          transparent: this.params.transparent,
+          color: this.params.transparent ? undefined : this.params.color,
+        }),
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || 'Failed to process image')
+      }
+
+      const payload = await response.json()
+      if (!payload.image_base64) {
+        throw new Error('Response did not include image data')
+      }
+
+      const dataUrl = `data:${payload.mime_type ?? 'image/png'};base64,${payload.image_base64}`
+      this.image = {
+        kind: 'image',
+        dataUrl,
+        fileName: payload.file_name ?? 'removed-background.png',
+        width: typeof payload.width === 'number' ? payload.width : undefined,
+        height: typeof payload.height === 'number' ? payload.height : undefined,
+      }
+
+      this.isProcessing = false
+      this.notify()
+      onGraphChange()
+    } catch (error) {
+      this.isProcessing = false
       this.error = error instanceof Error ? error.message : 'Unknown error'
       this.notify()
     }
@@ -708,6 +816,66 @@ export function HunyuanGenerationControlView(props: {
         Unload models after generation
       </label>
       {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}
+    </div>
+  )
+}
+
+export function BackgroundRemovalControlView(props: {
+  control: BackgroundRemovalControl
+  onGraphChange: () => void
+}) {
+  const { control, onGraphChange } = props
+  const [, forceUpdate] = useState(0)
+
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  const params = control.params
+  const disableConvert = control.isProcessing || !control.hasInputImage()
+
+  const handleModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    control.updateParam('mode', event.target.value as RemoveBgParams['mode'])
+  }
+
+  const handleColorChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    control.updateParam('color', event.target.value)
+  }
+
+  return (
+    <div className={`control-block${control.isProcessing ? ' generating' : ''}`}>
+      <div className="control-label">Remove Background</div>
+      {control.error && <div className="control-error">{control.error}</div>}
+      {!control.hasInputImage() && <div className="control-hint">Connect an image input to enable conversion.</div>}
+      <div className="tripo-grid">
+        <label>
+          Output Mode
+          <select value={params.mode} onChange={handleModeChange}>
+            <option value="rgb">RGB</option>
+            <option value="rgba">RGBA</option>
+          </select>
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.transparent}
+            onChange={(event) => control.updateParam('transparent', event.target.checked)}
+          />
+          Transparent background
+        </label>
+        {!params.transparent && (
+          <label>
+            Background Color
+            <input type="color" value={params.color} onChange={handleColorChange} />
+          </label>
+        )}
+      </div>
+      <button type="button" onClick={() => void control.convert(onGraphChange)} disabled={disableConvert}>
+        {control.isProcessing ? 'Processing…' : 'Convert'}
+      </button>
+      {control.image && (
+        <div className="control-hint">
+          Ready: {control.image.fileName ?? 'processed.png'}
+        </div>
+      )}
     </div>
   )
 }

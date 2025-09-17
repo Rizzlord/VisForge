@@ -40,6 +40,7 @@ export type NodeKind =
   | 'preview3d'
   | 'generateTripoModel'
   | 'generateHy21Model'
+  | 'removeBackground'
   | 'saveModel'
   | 'saveImage'
 
@@ -65,6 +66,7 @@ export interface SerializedNodeState {
   mode?: PreviewMode
   tripo?: TripoSerializedState
   hunyuan?: HunyuanSerializedState
+  removeBg?: RemoveBgSerializedState
 }
 
 export interface SerializedNode {
@@ -130,4 +132,18 @@ export interface HunyuanSerializedState {
   modelBase64?: string
   modelMimeType?: string
   modelFileName?: string
+}
+
+export interface RemoveBgParams {
+  mode: 'rgb' | 'rgba'
+  transparent: boolean
+  color: string
+}
+
+export interface RemoveBgSerializedState {
+  params: RemoveBgParams
+  imageDataUrl?: string
+  fileName?: string
+  width?: number
+  height?: number
 }

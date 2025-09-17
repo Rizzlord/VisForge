@@ -21,6 +21,8 @@ import {
   Preview3DControlView,
   HunyuanGenerationControl,
   HunyuanGenerationControlView,
+  BackgroundRemovalControl,
+  BackgroundRemovalControlView,
   TripoGenerationControl,
   TripoGenerationControlView,
   SaveModelControl,
@@ -168,6 +170,20 @@ class GenerateHy21ModelNode extends FoldableNode {
   }
 }
 
+class RemoveBackgroundNode extends FoldableNode {
+  readonly processor: BackgroundRemovalControl
+
+  constructor() {
+    super('Remove Background', 'removeBackground')
+    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
+    this.addOutput('image', new ClassicPreset.Output(imageSocket, 'Image'))
+    this.processor = new BackgroundRemovalControl(this.id)
+    this.addControl('processor', this.processor)
+    this.width = 360
+    this.height = 260
+  }
+}
+
 class SaveModelNode extends FoldableNode {
   readonly saver: SaveModelControl
 
@@ -201,6 +217,7 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   preview3d: () => new Preview3DNode(),
   generateTripoModel: () => new GenerateTripoModelNode(),
   generateHy21Model: () => new GenerateHy21ModelNode(),
+  removeBackground: () => new RemoveBackgroundNode(),
   saveModel: () => new SaveModelNode(),
   saveImage: () => new SaveImageNode(),
 }
@@ -225,6 +242,7 @@ const NODE_CATALOG: NodeCatalogCategory[] = [
     entries: [
       { kind: 'separateChannels', label: 'Separate Channels', description: 'Split RGBA channels.' },
       { kind: 'combineChannels', label: 'Combine Channels', description: 'Rebuild RGBA from inputs.' },
+      { kind: 'removeBackground', label: 'Remove Background', description: 'Strip or replace image backgrounds.' },
     ],
   },
   {
@@ -545,6 +563,12 @@ function captureNodeState(node: FoldableNode): SerializedNodeState {
     }
   }
 
+  if (node instanceof RemoveBackgroundNode) {
+    return {
+      removeBg: node.processor.serialize(),
+    }
+  }
+
   return {}
 }
 
@@ -578,6 +602,10 @@ function applyNodeState(node: FoldableNode, state?: SerializedNodeState) {
 
   if (node instanceof GenerateHy21ModelNode && state.hunyuan) {
     node.generator.applySerialized(state.hunyuan)
+  }
+
+  if (node instanceof RemoveBackgroundNode && state.removeBg) {
+    node.processor.applySerialized(state.removeBg)
   }
 }
 
@@ -792,6 +820,10 @@ function renderControlComponent(control: ClassicPreset.Control, onGraphChange: (
     return <HunyuanGenerationControlView control={control} onGraphChange={onGraphChange} />
   }
 
+  if (control instanceof BackgroundRemovalControl) {
+    return <BackgroundRemovalControlView control={control} onGraphChange={onGraphChange} />
+  }
+
   if (control instanceof SaveModelControl) {
     return <SaveModelControlView control={control} />
   }
@@ -911,6 +943,13 @@ async function evaluateNode(
     const image = inputs.image as ImageValue | undefined
     control?.setInputImage(image)
     return control?.model ? { model: control.model } : {}
+  }
+
+  if (node instanceof RemoveBackgroundNode) {
+    const control = node.controls.processor as BackgroundRemovalControl | undefined
+    const image = inputs.image as ImageValue | undefined
+    control?.setInputImage(image)
+    return control?.image ? { image: control.image } : {}
   }
 
   if (node instanceof SaveModelNode) {
