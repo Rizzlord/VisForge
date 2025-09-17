@@ -97,11 +97,11 @@ class HunyuanRequest(BaseModel):
     seed: int = Field(1234, ge=0, le=0xFFFFFFFF)
     randomize_seed: bool = Field(False, description="Randomize seed before generation")
     remove_background: bool = Field(True, description="Apply background removal before inference")
-    num_inference_steps: int = Field(5, ge=1, le=200)
+    num_inference_steps: int = Field(30, ge=1, le=200)
     guidance_scale: float = Field(5.0, ge=0.0, le=50.0)
     octree_resolution: int = Field(256, ge=16, le=1024)
     num_chunks: int = Field(8000, ge=1000, le=5_000_000)
-    mc_algo: Literal['mc', 'dmc'] = Field('mc', description="Surface extraction algorithm")
+    mc_algo: Literal['mc', 'dmc'] = Field('dmc', description="Surface extraction algorithm")
     unload_model_after_generation: bool = Field(True, description="Release model weights after generation")
 
 

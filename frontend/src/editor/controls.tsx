@@ -64,11 +64,11 @@ const DEFAULT_HUNYUAN_PARAMS: HunyuanParams = {
   seed: 1234,
   randomizeSeed: true,
   removeBackground: true,
-  numInferenceSteps: 5,
+  numInferenceSteps: 30,
   guidanceScale: 5,
   octreeResolution: 256,
   numChunks: 8000,
-  mcAlgo: 'mc',
+  mcAlgo: 'dmc',
   unloadModelAfterGeneration: true,
 }
 
