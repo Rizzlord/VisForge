@@ -330,6 +330,8 @@ class HunyuanTextureRequest(BaseModel):
     guidance_scale: float = Field(3.0, ge=0.0, le=20.0)
     target_face_count: int = Field(40000, ge=1000, le=5_000_000)
     remesh_mesh: bool = Field(True, description="Enable preprocessing remeshing")
+    decimate: bool = Field(True, description="Apply mesh decimation before texturing")
+    uv_unwrap: bool = Field(True, description="Generate UVs using xatlas")
     unload_model_after_generation: bool = Field(True, description="Release texture weights after run")
 
 
@@ -475,6 +477,8 @@ async def hunyuan_texture_generate(request: HunyuanTextureRequest) -> HunyuanTex
         guidance_scale=request.guidance_scale,
         target_face_count=request.target_face_count,
         remesh_mesh=request.remesh_mesh,
+        decimate=request.decimate,
+        uv_unwrap=request.uv_unwrap,
         unload_model_after_generation=request.unload_model_after_generation,
     )
 

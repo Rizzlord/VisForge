@@ -36,6 +36,8 @@ class TextureWorkerParams:
     guidance_scale: float
     target_face_count: int
     remesh_mesh: bool
+    decimate: bool
+    uv_unwrap: bool
     unload_model_after_generation: bool
 
 
@@ -309,6 +311,8 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         guidance_scale=float(payload["guidance_scale"]),
         target_face_count=int(payload.get("target_face_count", 40000)),
         remesh_mesh=bool(payload["remesh_mesh"]),
+        decimate=bool(payload.get("decimate", True)),
+        uv_unwrap=bool(payload.get("uv_unwrap", True)),
         unload_model_after_generation=bool(payload["unload_model_after_generation"]),
     )
 
@@ -326,12 +330,14 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     config.realesrgan_ckpt_path = str(realesrgan_path)
 
     logger.info(
-        "Initialising paint pipeline (views=%d, resolution=%d, steps=%d, guidance=%.2f, target_faces=%d)",
+        "Initialising paint pipeline (views=%d, resolution=%d, steps=%d, guidance=%.2f, target_faces=%d, decimate=%s, uv_unwrap=%s)",
         params.max_view_count,
         params.view_resolution,
         params.num_inference_steps,
         params.guidance_scale,
         params.target_face_count,
+        params.decimate,
+        params.uv_unwrap,
     )
 
     paint_pipeline = Hunyuan3DPaintPipeline(config)
@@ -371,6 +377,8 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
             image_path=reference_image,
             output_mesh_path=str(output_obj_path),
             use_remesh=params.remesh_mesh,
+            decimate=params.decimate,
+            uv_unwrap=params.uv_unwrap,
             save_glb=False,
             target_face_count=params.target_face_count,
         )

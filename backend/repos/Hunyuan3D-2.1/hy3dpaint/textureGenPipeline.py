@@ -99,6 +99,8 @@ class Hunyuan3DPaintPipeline:
         image_path=None,
         output_mesh_path=None,
         use_remesh=True,
+        decimate=True,
+        uv_unwrap=True,
         save_glb=True,
         target_face_count=None,
     ):
@@ -123,13 +125,15 @@ class Hunyuan3DPaintPipeline:
         path = os.path.dirname(mesh_path)
         target_faces = target_face_count or getattr(self.config, "target_face_count", 40000)
 
-        if use_remesh:
+        processed_mesh_path = mesh_path
+        if use_remesh and decimate:
             processed_mesh_path = os.path.join(path, "white_mesh_remesh.obj")
             logger.info("HyPaint remeshing mesh to ~%d faces", target_faces)
             remesh_mesh(mesh_path, processed_mesh_path, target_count=target_faces)
             logger.info("HyPaint remesh completed: %s", processed_mesh_path)
-        else:
+        elif use_remesh:
             processed_mesh_path = mesh_path
+            logger.info("HyPaint remesh disabled by decimate flag")
 
         # Output path
         if output_mesh_path is None:
@@ -137,8 +141,11 @@ class Hunyuan3DPaintPipeline:
 
         # Load mesh
         mesh = trimesh.load(processed_mesh_path)
-        mesh = mesh_uv_wrap(mesh)
-        logger.info("HyPaint mesh loaded and UV-wrapped")
+        if uv_unwrap:
+            mesh = mesh_uv_wrap(mesh)
+            logger.info("HyPaint mesh loaded and UV-wrapped")
+        else:
+            logger.info("HyPaint UV unwrap skipped")
         self.render.load_mesh(mesh=mesh)
 
         ########### View Selection #########

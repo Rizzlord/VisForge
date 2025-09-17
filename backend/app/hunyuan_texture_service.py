@@ -28,6 +28,8 @@ class HunyuanTextureParams:
     guidance_scale: float
     target_face_count: int
     remesh_mesh: bool
+    decimate: bool
+    uv_unwrap: bool
     unload_model_after_generation: bool
 
 

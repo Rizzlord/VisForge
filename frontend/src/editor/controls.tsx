@@ -71,6 +71,8 @@ const DEFAULT_HUNYUAN_TEXTURE_PARAMS: HunyuanTextureParams = {
   guidanceScale: 3,
   targetFaceCount: 40000,
   remeshMesh: true,
+  decimate: true,
+  uvUnwrap: true,
   unloadModelAfterGeneration: true,
 }
 
@@ -478,6 +480,8 @@ export class HunyuanTextureGenerationControl extends ReactiveControl {
           num_inference_steps: this.params.numInferenceSteps,
           target_face_count: this.params.targetFaceCount,
           guidance_scale: this.params.guidanceScale,
+          decimate: this.params.decimate,
+          uv_unwrap: this.params.uvUnwrap,
           remesh_mesh: this.params.remeshMesh,
           unload_model_after_generation: this.params.unloadModelAfterGeneration,
         }),
@@ -1109,6 +1113,22 @@ export function HunyuanTextureGenerationControlView(props: {
             onChange={(event) => control.updateParam('remeshMesh', event.target.checked)}
           />
           Remesh input model
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.decimate}
+            onChange={(event) => control.updateParam('decimate', event.target.checked)}
+          />
+          Decimate mesh
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.uvUnwrap}
+            onChange={(event) => control.updateParam('uvUnwrap', event.target.checked)}
+          />
+          UV unwrap mesh
         </label>
         <label className="checkbox">
           <input

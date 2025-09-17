@@ -145,6 +145,8 @@ export interface HunyuanTextureParams {
   guidanceScale: number
   targetFaceCount: number
   remeshMesh: boolean
+  decimate: boolean
+  uvUnwrap: boolean
   unloadModelAfterGeneration: boolean
 }
 
