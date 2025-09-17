@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import base64
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import networkx as nx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from .triposg_service import TripoParams, triposg_service
+from .hunyuan_service import HunyuanParams, hunyuan_service
 
 app = FastAPI(title="VisForge Execution API", version="0.1.0")
 
@@ -89,6 +90,26 @@ class TripoSGResponse(BaseModel):
     glb_base64: str
     file_name: str = "tripo-model.glb"
     mime_type: str = "model/gltf-binary"
+
+
+class HunyuanRequest(BaseModel):
+    image_data_url: str = Field(..., description="Image data URL (base64) to convert into a 3D model")
+    seed: int = Field(1234, ge=0, le=0xFFFFFFFF)
+    randomize_seed: bool = Field(False, description="Randomize seed before generation")
+    remove_background: bool = Field(True, description="Apply background removal before inference")
+    num_inference_steps: int = Field(5, ge=1, le=200)
+    guidance_scale: float = Field(5.0, ge=0.0, le=50.0)
+    octree_resolution: int = Field(256, ge=16, le=1024)
+    num_chunks: int = Field(8000, ge=1000, le=5_000_000)
+    mc_algo: Literal['mc', 'dmc'] = Field('mc', description="Surface extraction algorithm")
+    unload_model_after_generation: bool = Field(True, description="Release model weights after generation")
+
+
+class HunyuanResponse(BaseModel):
+    glb_base64: str
+    file_name: str = "hunyuan-model.glb"
+    mime_type: str = "model/gltf-binary"
+    seed: int
 
 
 @app.post("/execute")
@@ -171,3 +192,35 @@ async def triposg_generate(request: TripoSGRequest) -> TripoSGResponse:
 
     glb_base64 = base64.b64encode(glb_bytes).decode("utf-8")
     return TripoSGResponse(glb_base64=glb_base64)
+
+
+@app.post("/hunyuan/generate", response_model=HunyuanResponse)
+async def hunyuan_generate(request: HunyuanRequest) -> HunyuanResponse:
+    params = HunyuanParams(
+        seed=request.seed,
+        randomize_seed=request.randomize_seed,
+        remove_background=request.remove_background,
+        num_inference_steps=request.num_inference_steps,
+        guidance_scale=request.guidance_scale,
+        octree_resolution=request.octree_resolution,
+        num_chunks=request.num_chunks,
+        mc_algo=request.mc_algo,
+        unload_model_after_generation=request.unload_model_after_generation,
+    )
+
+    async with hunyuan_service.lock:
+        try:
+            glb_bytes, metadata = await hunyuan_service.generate(
+                request.image_data_url,
+                params,
+            )
+        except Exception as exc:  # pragma: no cover - runtime error surface
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    glb_base64 = base64.b64encode(glb_bytes).decode("utf-8")
+    return HunyuanResponse(
+        glb_base64=glb_base64,
+        file_name=str(metadata.get("file_name", "hunyuan-model.glb")),
+        mime_type=str(metadata.get("mime_type", "model/gltf-binary")),
+        seed=int(metadata.get("seed", request.seed)),
+    )

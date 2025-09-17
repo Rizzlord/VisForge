@@ -8,8 +8,9 @@ VisForge is a playground for building a ComfyUI-inspired visual node editor with
 - Unreal‑style node styling with collapsible bodies and floating connection orbs.
 - Node library sidebar grouped by category for quick drag-free placement.
 - Workflow tabs with local persistence (save, save‑as, rename) backed by `localStorage`.
-- Prebuilt nodes: **Load Image**, **Load Model**, **Separate Channels**, **Combine Channels**, **Show Image**, **Preview 3D**, **Generate Tripo Model**, **Save Model**, and **Save Image**.
+- Prebuilt nodes: **Load Image**, **Load Model**, **Separate Channels**, **Combine Channels**, **Show Image**, **Preview 3D**, **Generate Tripo Model**, **Generate Hy 2.1 Model**, **Save Model**, and **Save Image**.
 - New **Generate Tripo Model** node that submits an image to the backend TripoSG pipeline and returns a GLB for downstream preview.
+- Added **Generate Hy 2.1 Model** node backed by the Hunyuan3D-2.1 image-to-3D pipeline with configurable MC/DMC surface extraction.
 - Image pipeline helpers that split/merge RGBA channels directly in the browser.
 - Babylon.js viewport with switchable **Base**, **Wire**, and **Norm** shading modes and smarter GLB/GLTF loading.
 
@@ -37,6 +38,7 @@ uvicorn app.main:app --reload
 ```
 
 > **Note:** The TripoSG node relies on heavy ML dependencies (PyTorch, diffusers, pymeshlab, etc.) and the initial run downloads the required checkpoints into `backend/repos/TripoSG/weights/`. Ensure you have sufficient disk space and (optionally) a CUDA-capable GPU for reasonable performance.
+> **Note:** The Hunyuan3D-2.1 node pulls the shape-generation weights from Hugging Face into `backend/repos/Hunyuan3D-2.1/weights/` on first use. The download is large; plan for ample disk space and a GPU if you want practical inference times.
 The OpenAPI docs will be available at <http://localhost:8000/docs> once the server is running.
 
 ## Project Layout

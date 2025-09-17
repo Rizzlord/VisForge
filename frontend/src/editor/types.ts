@@ -39,6 +39,7 @@ export type NodeKind =
   | 'showImage'
   | 'preview3d'
   | 'generateTripoModel'
+  | 'generateHy21Model'
   | 'saveModel'
   | 'saveImage'
 
@@ -63,6 +64,7 @@ export interface SerializedNodeState {
   } | null
   mode?: PreviewMode
   tripo?: TripoSerializedState
+  hunyuan?: HunyuanSerializedState
 }
 
 export interface SerializedNode {
@@ -106,6 +108,25 @@ export interface TripoParams {
 
 export interface TripoSerializedState {
   params: TripoParams
+  modelBase64?: string
+  modelMimeType?: string
+  modelFileName?: string
+}
+
+export interface HunyuanParams {
+  seed: number
+  randomizeSeed: boolean
+  removeBackground: boolean
+  numInferenceSteps: number
+  guidanceScale: number
+  octreeResolution: number
+  numChunks: number
+  mcAlgo: 'mc' | 'dmc'
+  unloadModelAfterGeneration: boolean
+}
+
+export interface HunyuanSerializedState {
+  params: HunyuanParams
   modelBase64?: string
   modelMimeType?: string
   modelFileName?: string

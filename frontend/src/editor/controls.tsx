@@ -23,6 +23,8 @@ import type {
   ImageValue,
   ModelValue,
   PreviewMode,
+  HunyuanParams,
+  HunyuanSerializedState,
   TripoParams,
   TripoSerializedState,
 } from './types'
@@ -57,6 +59,18 @@ const DEFAULT_TRIPO_PARAMS: TripoParams = {
 }
 
 const OCTREE_OPTIONS = [256, 512, 1024, 2048]
+
+const DEFAULT_HUNYUAN_PARAMS: HunyuanParams = {
+  seed: 1234,
+  randomizeSeed: true,
+  removeBackground: true,
+  numInferenceSteps: 5,
+  guidanceScale: 5,
+  octreeResolution: 256,
+  numChunks: 8000,
+  mcAlgo: 'mc',
+  unloadModelAfterGeneration: true,
+}
 
 export class ReactiveControl extends ClassicPreset.Control {
   readonly nodeId: string
@@ -215,6 +229,116 @@ export class TripoGenerationControl extends ReactiveControl {
         fileName: payload.file_name ?? 'tripo-model.glb',
         mimeType: payload.mime_type ?? 'model/gltf-binary',
       }
+      this.isGenerating = false
+      this.notify()
+      onGraphChange()
+    } catch (error) {
+      this.isGenerating = false
+      this.error = error instanceof Error ? error.message : 'Unknown error'
+      this.notify()
+    }
+  }
+}
+
+export class HunyuanGenerationControl extends ReactiveControl {
+  params: HunyuanParams = { ...DEFAULT_HUNYUAN_PARAMS }
+  model: ModelValue | null = null
+  isGenerating = false
+  error: string | null = null
+  private inputImage: ImageValue | null = null
+
+  setInputImage(image: ImageValue | undefined) {
+    this.inputImage = image ?? null
+    this.notify()
+  }
+
+  hasInputImage(): boolean {
+    return this.inputImage !== null
+  }
+
+  updateParam<K extends keyof HunyuanParams>(key: K, value: HunyuanParams[K]) {
+    this.params = { ...this.params, [key]: value }
+    this.notify()
+  }
+
+  applySerialized(state?: HunyuanSerializedState) {
+    if (!state) return
+    this.params = { ...this.params, ...state.params }
+    if (state.modelBase64) {
+      const buffer = base64ToArrayBuffer(state.modelBase64)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: state.modelFileName ?? 'hunyuan-model.glb',
+        mimeType: state.modelMimeType ?? 'model/gltf-binary',
+      }
+    }
+    this.notify()
+  }
+
+  serialize(): HunyuanSerializedState {
+    const base: HunyuanSerializedState = { params: { ...this.params } }
+    if (this.model) {
+      base.modelBase64 = arrayBufferToBase64(this.model.arrayBuffer)
+      base.modelFileName = this.model.fileName
+      base.modelMimeType = this.model.mimeType
+    }
+    return base
+  }
+
+  async generate(onGraphChange: () => void) {
+    if (!this.inputImage) {
+      this.error = 'Connect an image input before generating.'
+      this.notify()
+      return
+    }
+
+    this.isGenerating = true
+    this.error = null
+    this.model = null
+    this.notify()
+
+    try {
+      const response = await fetch(`${DEFAULT_BACKEND_BASE}/hunyuan/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_data_url: this.inputImage.dataUrl,
+          seed: this.params.seed,
+          randomize_seed: this.params.randomizeSeed,
+          remove_background: this.params.removeBackground,
+          num_inference_steps: this.params.numInferenceSteps,
+          guidance_scale: this.params.guidanceScale,
+          octree_resolution: this.params.octreeResolution,
+          num_chunks: this.params.numChunks,
+          mc_algo: this.params.mcAlgo,
+          unload_model_after_generation: this.params.unloadModelAfterGeneration,
+        }),
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || 'Failed to generate model')
+      }
+
+      const payload = await response.json()
+      if (!payload.glb_base64) {
+        throw new Error('Response did not include model data')
+      }
+
+      const buffer = base64ToArrayBuffer(payload.glb_base64)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: payload.file_name ?? 'hunyuan-model.glb',
+        mimeType: payload.mime_type ?? 'model/gltf-binary',
+      }
+
+      const updatedSeed = Number(payload.seed)
+      if (Number.isFinite(updatedSeed)) {
+        this.params = { ...this.params, seed: updatedSeed }
+      }
+
       this.isGenerating = false
       this.notify()
       onGraphChange()
@@ -497,6 +621,90 @@ export function TripoGenerationControlView(props: {
       </button>
       <label className="checkbox">
         <input type="checkbox" checked={params.unloadModelAfterGeneration} onChange={handleCheckbox('unloadModelAfterGeneration')} />
+        Unload models after generation
+      </label>
+      {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}
+    </div>
+  )
+}
+
+export function HunyuanGenerationControlView(props: {
+  control: HunyuanGenerationControl
+  onGraphChange: () => void
+}) {
+  const { control, onGraphChange } = props
+  const [, forceUpdate] = useState(0)
+
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  const params = control.params
+  const disableGenerate = control.isGenerating || !control.hasInputImage()
+
+  const handleNumberChange = (key: keyof HunyuanParams) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.type === 'number' ? Number(event.target.value) : event.target.value
+      control.updateParam(key, value as any)
+    }
+
+  const handleCheckbox = (key: keyof HunyuanParams) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      control.updateParam(key, event.target.checked as any)
+    }
+
+  const handleSelect = (key: keyof HunyuanParams) =>
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      control.updateParam(key, event.target.value as any)
+    }
+
+  return (
+    <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
+      <div className="control-label">Generate Hy 2.1 Model</div>
+      {control.error && <div className="control-error">{control.error}</div>}
+      {!control.hasInputImage() && <div className="control-hint">Connect an image input to enable generation.</div>}
+      <div className="tripo-grid">
+        <label>
+          Seed
+          <input type="number" value={params.seed} min={0} max={0xffffffff} onChange={handleNumberChange('seed')} />
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={params.randomizeSeed} onChange={handleCheckbox('randomizeSeed')} /> Randomize seed
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={params.removeBackground} onChange={handleCheckbox('removeBackground')} /> Remove background
+        </label>
+        <label>
+          Steps
+          <input type="number" value={params.numInferenceSteps} min={1} max={200} onChange={handleNumberChange('numInferenceSteps')} />
+        </label>
+        <label>
+          Guidance Scale
+          <input type="number" value={params.guidanceScale} min={0} max={50} step={0.1} onChange={handleNumberChange('guidanceScale')} />
+        </label>
+        <label>
+          Octree Resolution
+          <input type="number" value={params.octreeResolution} min={16} max={1024} step={16} onChange={handleNumberChange('octreeResolution')} />
+        </label>
+        <label>
+          Num Chunks
+          <input type="number" value={params.numChunks} min={1000} step={1000} onChange={handleNumberChange('numChunks')} />
+        </label>
+        <label>
+          Surface Extractor
+          <select value={params.mcAlgo} onChange={handleSelect('mcAlgo')}>
+            <option value="mc">Marching Cubes (MC)</option>
+            <option value="dmc">Differentiable MC (DMC)</option>
+          </select>
+        </label>
+      </div>
+      <button type="button" onClick={() => void control.generate(onGraphChange)} disabled={disableGenerate}>
+        {control.isGenerating ? 'Generating…' : 'Generate'}
+      </button>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={params.unloadModelAfterGeneration}
+          onChange={handleCheckbox('unloadModelAfterGeneration')}
+        />
         Unload models after generation
       </label>
       {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}

@@ -159,3 +159,5 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 /backend/repos/TripoSG/weights
+/backend/repos/Hunyuan3D-2.1/weights
+backend/repos/Hunyuan3D-2.1/weights/tencent-Hunyuan3D-2.1/README.md

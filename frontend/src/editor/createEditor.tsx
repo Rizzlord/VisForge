@@ -19,6 +19,8 @@ import {
   ModelUploadControlView,
   Preview3DControl,
   Preview3DControlView,
+  HunyuanGenerationControl,
+  HunyuanGenerationControlView,
   TripoGenerationControl,
   TripoGenerationControlView,
   SaveModelControl,
@@ -152,6 +154,20 @@ class GenerateTripoModelNode extends FoldableNode {
   }
 }
 
+class GenerateHy21ModelNode extends FoldableNode {
+  readonly generator: HunyuanGenerationControl
+
+  constructor() {
+    super('Generate Hy 2.1 Model', 'generateHy21Model')
+    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
+    this.addOutput('model', new ClassicPreset.Output(modelSocket, 'Model'))
+    this.generator = new HunyuanGenerationControl(this.id)
+    this.addControl('generate', this.generator)
+    this.width = 420
+    this.height = 320
+  }
+}
+
 class SaveModelNode extends FoldableNode {
   readonly saver: SaveModelControl
 
@@ -184,6 +200,7 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   showImage: () => new ShowImageNode(),
   preview3d: () => new Preview3DNode(),
   generateTripoModel: () => new GenerateTripoModelNode(),
+  generateHy21Model: () => new GenerateHy21ModelNode(),
   saveModel: () => new SaveModelNode(),
   saveImage: () => new SaveImageNode(),
 }
@@ -225,6 +242,7 @@ const NODE_CATALOG: NodeCatalogCategory[] = [
     label: '3D Generation',
     entries: [
       { kind: 'generateTripoModel', label: 'Generate Tripo Model', description: 'Create 3D geometry from a reference image.' },
+      { kind: 'generateHy21Model', label: 'Generate Hy 2.1 Model', description: 'Generate geometry using the Hunyuan3D-2.1 pipeline.' },
     ],
   },
 ]
@@ -521,6 +539,12 @@ function captureNodeState(node: FoldableNode): SerializedNodeState {
     }
   }
 
+  if (node instanceof GenerateHy21ModelNode) {
+    return {
+      hunyuan: node.generator.serialize(),
+    }
+  }
+
   return {}
 }
 
@@ -550,6 +574,10 @@ function applyNodeState(node: FoldableNode, state?: SerializedNodeState) {
 
   if (node instanceof GenerateTripoModelNode && state.tripo) {
     node.generator.applySerialized(state.tripo)
+  }
+
+  if (node instanceof GenerateHy21ModelNode && state.hunyuan) {
+    node.generator.applySerialized(state.hunyuan)
   }
 }
 
@@ -760,6 +788,10 @@ function renderControlComponent(control: ClassicPreset.Control, onGraphChange: (
     return <TripoGenerationControlView control={control} onGraphChange={onGraphChange} />
   }
 
+  if (control instanceof HunyuanGenerationControl) {
+    return <HunyuanGenerationControlView control={control} onGraphChange={onGraphChange} />
+  }
+
   if (control instanceof SaveModelControl) {
     return <SaveModelControlView control={control} />
   }
@@ -869,6 +901,13 @@ async function evaluateNode(
 
   if (node instanceof GenerateTripoModelNode) {
     const control = node.controls.generate as TripoGenerationControl | undefined
+    const image = inputs.image as ImageValue | undefined
+    control?.setInputImage(image)
+    return control?.model ? { model: control.model } : {}
+  }
+
+  if (node instanceof GenerateHy21ModelNode) {
+    const control = node.controls.generate as HunyuanGenerationControl | undefined
     const image = inputs.image as ImageValue | undefined
     control?.setInputImage(image)
     return control?.model ? { model: control.model } : {}
