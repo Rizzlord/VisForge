@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 import { fileToImageValue, fileToModelValue, base64ToArrayBuffer, arrayBufferToBase64 } from './imageUtils'
+import { BACKEND_BASE } from './config'
 import { useGraphStore } from './store'
 import type {
   ChannelKey,
@@ -23,19 +24,6 @@ import type {
 } from './types'
 
 const EMPTY_OUTPUTS = Object.freeze({}) as GraphOutputs[string]
-const DEFAULT_BACKEND_BASE = (() => {
-  const env = (import.meta as any).env?.VITE_BACKEND_URL as string | undefined
-  if (env && env.trim()) {
-    return env.replace(/\/$/, '')
-  }
-  if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol
-    const hostname = window.location.hostname
-    const defaultPort = 8000
-    return `${protocol}//${hostname}:${defaultPort}`
-  }
-  return ''
-})()
 const DEFAULT_TRIPO_PARAMS: TripoParams = {
   seed: 681589206,
   useFloat16: true,
@@ -122,14 +110,31 @@ export class ModelUploadControl extends ReactiveControl {
 
 export class ChannelsPreviewControl extends ReactiveControl {}
 
-export class ImageDisplayControl extends ReactiveControl {}
+export class ImageDisplayControl extends ReactiveControl {
+  image: ImageValue | null = null
+
+  setImage(image: ImageValue | undefined) {
+    const next = image ?? null
+    if (this.image === next) return
+    this.image = next
+    this.notify()
+  }
+}
 
 export class Preview3DControl extends ReactiveControl {
   mode: PreviewMode = 'Base'
+  model: ModelValue | null = null
 
   setMode(mode: PreviewMode) {
     if (this.mode === mode) return
     this.mode = mode
+    this.notify()
+  }
+
+  setModel(model: ModelValue | undefined) {
+    const next = model ?? null
+    if (this.model === next) return
+    this.model = next
     this.notify()
   }
 }
@@ -192,7 +197,7 @@ export class TripoGenerationControl extends ReactiveControl {
     this.notify()
 
     try {
-      const response = await fetch(`${DEFAULT_BACKEND_BASE}/triposg/generate`, {
+      const response = await fetch(`${BACKEND_BASE}/triposg/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -298,7 +303,7 @@ export class HunyuanGenerationControl extends ReactiveControl {
     this.notify()
 
     try {
-      const response = await fetch(`${DEFAULT_BACKEND_BASE}/hunyuan/generate`, {
+      const response = await fetch(`${BACKEND_BASE}/hunyuan/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -408,7 +413,7 @@ export class BackgroundRemovalControl extends ReactiveControl {
     this.notify()
 
     try {
-      const response = await fetch(`${DEFAULT_BACKEND_BASE}/image/remove_background`, {
+      const response = await fetch(`${BACKEND_BASE}/image/remove_background`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -576,7 +581,7 @@ export function ChannelsPreviewControlView(props: {
 export function ImageDisplayControlView(props: { control: ImageDisplayControl }) {
   const { control } = props
   const outputs = useGraphOutputs(control.nodeId)
-  const image = outputs.image as ImageValue | undefined
+  const image = control.image ?? (outputs.image as ImageValue | undefined)
 
   return (
     <div className="control-block">
@@ -608,7 +613,7 @@ export function Preview3DControlView(props: {
   useEffect(() => control.subscribe(() => setVersion((v) => v + 1)), [control])
 
   const outputs = useGraphOutputs(control.nodeId)
-  const model = outputs.model as ModelValue | undefined
+  const model = control.model ?? (outputs.model as ModelValue | undefined)
 
   return (
     <div className={`control-block${fill ? ' control-block--fill' : ''}`}>
@@ -977,6 +982,8 @@ function ThreeViewport(props: { mode: PreviewMode; model?: ModelValue }) {
     renderer.setSize(container.clientWidth, container.clientHeight)
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.domElement.classList.add('preview-canvas')
+    renderer.domElement.style.touchAction = 'none'
+    renderer.domElement.tabIndex = 0
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
@@ -992,12 +999,41 @@ function ThreeViewport(props: { mode: PreviewMode; model?: ModelValue }) {
     controls.dampingFactor = 0.05
     controls.enablePan = true
     controls.screenSpacePanning = false
+    controls.enableRotate = true
+    controls.enableZoom = true
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.PAN,
+    }
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    }
     controlsRef.current = controls
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.9))
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.9)
     dirLight.position.set(5, 10, 7.5)
     scene.add(dirLight)
+
+    const stopPointerPropagation = (event: Event) => {
+      event.stopPropagation()
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+    }
+
+    const dom = renderer.domElement
+    dom.addEventListener('pointerdown', stopPointerPropagation)
+    dom.addEventListener('pointermove', stopPointerPropagation)
+    dom.addEventListener('pointerup', stopPointerPropagation)
+    dom.addEventListener('pointercancel', stopPointerPropagation)
+    dom.addEventListener('contextmenu', stopPointerPropagation)
+    dom.addEventListener('dblclick', stopPointerPropagation)
+    dom.addEventListener('wheel', handleWheel, { passive: false })
 
     const handleResize = () => {
       const host = containerRef.current
@@ -1021,7 +1057,7 @@ function ThreeViewport(props: { mode: PreviewMode; model?: ModelValue }) {
     frameRef.current = requestAnimationFrame(animate)
 
     return () => {
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
       resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
       if (groupRef.current) {
@@ -1030,6 +1066,13 @@ function ThreeViewport(props: { mode: PreviewMode; model?: ModelValue }) {
         groupRef.current = null
       }
       controls.dispose()
+      dom.removeEventListener('pointerdown', stopPointerPropagation)
+      dom.removeEventListener('pointermove', stopPointerPropagation)
+      dom.removeEventListener('pointerup', stopPointerPropagation)
+      dom.removeEventListener('pointercancel', stopPointerPropagation)
+      dom.removeEventListener('contextmenu', stopPointerPropagation)
+      dom.removeEventListener('dblclick', stopPointerPropagation)
+      dom.removeEventListener('wheel', handleWheel)
       renderer.dispose()
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement)

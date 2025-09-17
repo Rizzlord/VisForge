@@ -369,6 +369,18 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
 
   removeNodeById = async (nodeId: string) => {
     try {
+      const relatedConnections = editor
+        .getConnections()
+        .filter((conn) => conn.source === nodeId || conn.target === nodeId)
+
+      for (const connection of relatedConnections) {
+        try {
+          await editor.removeConnection(connection.id)
+        } catch (connError) {
+          console.warn('Failed to remove connection', connection.id, connError)
+        }
+      }
+
       await editor.removeNode(nodeId)
       scheduleEvaluation()
     } catch (error) {
@@ -918,16 +930,19 @@ async function evaluateNode(
     ])
 
     const result = await combineChannels({ r, g, b, a })
+    node.preview.setImage(result)
     return result ? { image: result } : {}
   }
 
   if (node instanceof ShowImageNode) {
     const image = inputs.image as ImageValue | undefined
+    node.preview.setImage(image)
     return image ? { image } : {}
   }
 
   if (node instanceof Preview3DNode) {
     const model = inputs.model as ModelValue | undefined
+    node.preview.setModel(model)
     return model ? { model } : {}
   }
 

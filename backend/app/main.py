@@ -3,13 +3,17 @@ from __future__ import annotations
 from collections import deque
 import base64
 import io
+import json
+import logging
+import re
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import networkx as nx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from .triposg_service import TripoParams, triposg_service
@@ -17,7 +21,14 @@ from .hunyuan_service import HunyuanParams, hunyuan_service
 from PIL import Image
 from rembg import remove, new_session
 
+logger = logging.getLogger(__name__)
+
 REMBG_SESSION = new_session()
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS_DIR = BACKEND_ROOT / "workflows"
+WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
+WORKFLOWS_INDEX_FILE = WORKFLOWS_DIR / "index.json"
 
 app = FastAPI(title="VisForge Execution API", version="0.1.0")
 
@@ -61,6 +72,151 @@ class ConnectionPayload(BaseModel):
 class GraphPayload(BaseModel):
     nodes: List[NodePayload] = Field(default_factory=list)
     connections: List[ConnectionPayload] = Field(default_factory=list)
+
+
+class WorkflowDocument(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    name: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowState(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    active_workflow_id: Optional[str] = Field(default=None, alias="activeWorkflowId")
+    workflows: List[WorkflowDocument] = Field(default_factory=list)
+
+
+def _slugify_name(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or "workflow"
+
+
+def _reserve_filename(name: str, used: set[str]) -> str:
+    base = _slugify_name(name)
+    candidate = f"{base}.json"
+    counter = 2
+    while candidate in used:
+        candidate = f"{base}-{counter}.json"
+        counter += 1
+    used.add(candidate)
+    return candidate
+
+
+def _load_workflow_state() -> WorkflowState:
+    if not WORKFLOWS_INDEX_FILE.exists():
+        return WorkflowState(active_workflow_id=None, workflows=[])
+
+    try:
+        with WORKFLOWS_INDEX_FILE.open("r", encoding="utf-8") as index_file:
+            index_payload = json.load(index_file)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to read workflow index: %s", exc)
+        return WorkflowState(active_workflow_id=None, workflows=[])
+
+    workflows: List[WorkflowDocument] = []
+
+    for entry in index_payload.get("workflows", []):
+        file_name = entry.get("file")
+        if not file_name:
+            continue
+
+        file_path = WORKFLOWS_DIR / file_name
+        if not file_path.exists():
+            logger.warning("Workflow file missing: %s", file_name)
+            continue
+
+        try:
+            with file_path.open("r", encoding="utf-8") as workflow_file:
+                payload = json.load(workflow_file)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to load workflow '%s': %s", file_name, exc)
+            continue
+
+        workflow_id = str(payload.get("id") or entry.get("id") or "").strip()
+        if not workflow_id:
+            logger.warning("Workflow file '%s' missing id", file_name)
+            continue
+
+        workflow_name = str(payload.get("name") or entry.get("name") or "Untitled Workflow").strip()
+        workflow_data = payload.get("data")
+        if not isinstance(workflow_data, dict):
+            workflow_data = {"nodes": [], "connections": []}
+
+        workflows.append(
+            WorkflowDocument(id=workflow_id, name=workflow_name, data=workflow_data)
+        )
+
+    active_workflow_id = index_payload.get("activeWorkflowId")
+    if isinstance(active_workflow_id, str):
+        active_workflow_id = active_workflow_id.strip() or None
+    else:
+        active_workflow_id = None
+
+    return WorkflowState(active_workflow_id=active_workflow_id, workflows=workflows)
+
+
+def _save_workflow_state(state: WorkflowState) -> WorkflowState:
+    used_file_names: set[str] = set()
+    persisted_entries: List[Dict[str, str]] = []
+
+    for document in state.workflows:
+        file_name = _reserve_filename(document.name, used_file_names)
+        file_path = WORKFLOWS_DIR / file_name
+
+        payload = {
+            "id": document.id,
+            "name": document.name,
+            "data": document.data,
+        }
+
+        try:
+            with file_path.open("w", encoding="utf-8") as workflow_file:
+                json.dump(payload, workflow_file, indent=2)
+        except OSError as exc:
+            logger.error("Failed to persist workflow '%s': %s", document.name, exc)
+            raise
+
+        persisted_entries.append({"id": document.id, "name": document.name, "file": file_name})
+
+    retained_files = {entry["file"] for entry in persisted_entries}
+
+    for path in WORKFLOWS_DIR.glob("*.json"):
+        if path.name == WORKFLOWS_INDEX_FILE.name:
+            continue
+        if path.name not in retained_files:
+            try:
+                path.unlink()
+            except OSError as exc:
+                logger.warning("Failed to remove stale workflow file '%s': %s", path.name, exc)
+
+    index_payload = {
+        "activeWorkflowId": state.active_workflow_id,
+        "workflows": persisted_entries,
+    }
+
+    try:
+        with WORKFLOWS_INDEX_FILE.open("w", encoding="utf-8") as index_file:
+            json.dump(index_payload, index_file, indent=2)
+    except OSError as exc:
+        logger.error("Failed to write workflow index: %s", exc)
+        raise
+
+    return state
+
+
+@app.get("/workflows/state", response_model=WorkflowState)
+async def get_workflow_state_endpoint() -> WorkflowState:
+    return await run_in_threadpool(_load_workflow_state)
+
+
+@app.put("/workflows/state", response_model=WorkflowState)
+async def put_workflow_state_endpoint(state: WorkflowState) -> WorkflowState:
+    validated = WorkflowState.model_validate(state)
+    return await run_in_threadpool(_save_workflow_state, validated)
 
 
 class TripoSGRequest(BaseModel):

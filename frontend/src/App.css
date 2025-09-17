@@ -49,6 +49,9 @@
   padding: 6px 14px;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .workflow-tabs button.active {
@@ -56,6 +59,11 @@
   color: #fff6ed;
   border-color: rgba(255, 172, 66, 0.85);
   box-shadow: 0 12px 30px rgba(255, 140, 20, 0.3);
+}
+
+.workflow-tabs button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .workflow-tabs button:not(.tab-add):hover {
@@ -70,6 +78,31 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.workflow-tab-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.workflow-tab-close:hover,
+.workflow-tab-close:focus {
+  background: rgba(0, 0, 0, 0.28);
 }
 
 .header-actions {
