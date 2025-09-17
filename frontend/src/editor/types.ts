@@ -138,6 +138,7 @@ export interface RemoveBgParams {
   mode: 'rgb' | 'rgba'
   transparent: boolean
   color: string
+  unloadModel: boolean
 }
 
 export interface RemoveBgSerializedState {

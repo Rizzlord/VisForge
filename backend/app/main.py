@@ -390,6 +390,7 @@ class RemoveBackgroundRequest(BaseModel):
     mode: Literal['rgb', 'rgba'] = Field('rgba', description="Output mode")
     transparent: bool = Field(True, description="Return transparent background (ignored for RGB)")
     color: Optional[str] = Field('#ffffff', description="Hex color for non-transparent background")
+    unload_model: bool = Field(True, description="Release RMBG weights after processing")
 
     @model_validator(mode="after")
     def _validate_color(self) -> 'RemoveBackgroundRequest':
@@ -433,7 +434,7 @@ def _parse_hex_color(value: Optional[str]) -> tuple[int, int, int]:
 
 def _process_background(request: RemoveBackgroundRequest) -> RemoveBackgroundResponse:
     pil_image = _decode_image(request.image_data_url)
-    removed_image = rmbg_service.remove_background(pil_image)
+    removed_image = rmbg_service.remove_background(pil_image, unload_model=request.unload_model)
 
     if request.transparent:
         output_image = removed_image

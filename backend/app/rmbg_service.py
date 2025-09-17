@@ -88,7 +88,7 @@ class RMBGService:
                 return key[len(prefix) :]
         return key
 
-    def remove_background(self, image: Image.Image) -> Image.Image:
+    def remove_background(self, image: Image.Image, unload_model: bool = False) -> Image.Image:
         model = self._load_model()
 
         original_size = image.size  # (width, height)
@@ -122,7 +122,20 @@ class RMBGService:
 
         rgba_image = rgb_image.convert("RGBA")
         rgba_image.putalpha(alpha_image)
+
+        if unload_model:
+            self.unload_model()
+
         return rgba_image
+
+    def unload_model(self) -> None:
+        with self._model_lock:
+            if self._model is None:
+                return
+            self._model = None
+            if self._device.type == "cuda":
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
 
 
 rmbg_service = RMBGService()

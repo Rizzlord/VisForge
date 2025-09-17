@@ -57,6 +57,7 @@ const DEFAULT_REMOVE_BG_PARAMS: RemoveBgParams = {
   mode: 'rgba',
   transparent: true,
   color: '#ffffff',
+  unloadModel: true,
 }
 
 export class ReactiveControl extends ClassicPreset.Control {
@@ -421,6 +422,7 @@ export class BackgroundRemovalControl extends ReactiveControl {
           mode: this.params.mode,
           transparent: this.params.transparent,
           color: this.params.transparent ? undefined : this.params.color,
+          unload_model: this.params.unloadModel,
         }),
       })
 
@@ -860,6 +862,14 @@ export function BackgroundRemovalControlView(props: {
             <input type="color" value={params.color} onChange={handleColorChange} />
           </label>
         )}
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.unloadModel}
+            onChange={(event) => control.updateParam('unloadModel', event.target.checked)}
+          />
+          Unload model after conversion
+        </label>
       </div>
       <button type="button" onClick={() => void control.convert(onGraphChange)} disabled={disableConvert}>
         {control.isProcessing ? 'Processing…' : 'Convert'}
