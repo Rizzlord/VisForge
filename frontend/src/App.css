@@ -1,0 +1,496 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at 15% 20%, rgba(255, 128, 0, 0.18), transparent 55%),
+    radial-gradient(circle at 85% 0%, rgba(255, 102, 0, 0.14), transparent 60%),
+    #1a1b1c;
+  color: #f4f5f7;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 28px 14px;
+  border-bottom: 1px solid rgba(255, 136, 34, 0.35);
+  background: linear-gradient(120deg, rgba(34, 36, 38, 0.92), rgba(20, 20, 21, 0.88));
+  box-shadow: inset 0 -1px 0 rgba(255, 128, 0, 0.2);
+  gap: 18px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.brand {
+  font-size: 1.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: #ff8c32;
+}
+
+.workflow-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-tabs button {
+  background: rgba(44, 45, 47, 0.85);
+  border: 1px solid rgba(255, 128, 0, 0.35);
+  border-radius: 10px;
+  color: rgba(238, 238, 238, 0.85);
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.workflow-tabs button.active {
+  background: linear-gradient(180deg, rgba(255, 140, 20, 0.95), rgba(200, 90, 0, 0.9));
+  color: #fff6ed;
+  border-color: rgba(255, 172, 66, 0.85);
+  box-shadow: 0 12px 30px rgba(255, 140, 20, 0.3);
+}
+
+.workflow-tabs button:not(.tab-add):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(255, 140, 20, 0.28);
+}
+
+.workflow-tabs .tab-add {
+  width: 36px;
+  height: 32px;
+  font-size: 1.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.header-actions button {
+  background: rgba(58, 59, 61, 0.85);
+  border: 1px solid rgba(255, 143, 37, 0.55);
+  border-radius: 10px;
+  color: #ffe6d6;
+  font-size: 0.85rem;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.header-actions button:not(:disabled):hover {
+  background: rgba(255, 128, 0, 0.5);
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.library-pane {
+  width: 260px;
+  border-right: 1px solid rgba(255, 143, 37, 0.18);
+  background: linear-gradient(180deg, rgba(33, 33, 34, 0.96), rgba(22, 22, 23, 0.98));
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.library-pane h2 {
+  font-size: 0.95rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ff9b3d;
+  margin: 0;
+}
+
+.library-category h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgba(255, 188, 120, 0.7);
+  margin: 0 0 8px;
+}
+
+.library-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.library-items button {
+  background: rgba(47, 48, 50, 0.82);
+  border: 1px solid rgba(255, 140, 20, 0.35);
+  border-radius: 10px;
+  color: rgba(236, 236, 236, 0.88);
+  text-align: left;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.library-items button:hover {
+  background: rgba(255, 128, 0, 0.45);
+  border-color: rgba(255, 166, 66, 0.65);
+  transform: translateX(2px);
+}
+
+.entry-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.entry-sub {
+  font-size: 0.72rem;
+  color: rgba(168, 192, 240, 0.7);
+}
+
+.library-placeholder {
+  font-size: 0.78rem;
+  color: rgba(200, 200, 200, 0.5);
+}
+
+.canvas-pane {
+  flex: 1 1 auto;
+  padding: 24px;
+}
+
+.node-canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 136, 34, 0.2);
+  background: linear-gradient(180deg, rgba(27, 27, 28, 0.95), rgba(18, 18, 19, 0.98));
+  box-shadow: 0 28px 48px rgba(0, 0, 0, 0.65);
+}
+
+.unreal-node {
+  min-width: 220px;
+  background: linear-gradient(180deg, rgba(44, 45, 47, 0.95), rgba(28, 28, 29, 0.95));
+  border: 1px solid rgba(255, 143, 37, 0.4);
+  border-radius: 16px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.6);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  padding-bottom: 8px;
+}
+
+.unreal-node[data-collapsed='true'] {
+  padding-bottom: 0;
+}
+
+.unreal-node__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid rgba(255, 140, 20, 0.3);
+}
+
+.unreal-node__fold {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 140, 20, 0.8);
+  background: rgba(48, 48, 49, 0.95);
+  color: #ffb066;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.unreal-node__title {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.8rem;
+  color: #ff9e46;
+  font-weight: 600;
+}
+
+.unreal-node__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 2fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.unreal-node__inputs,
+.unreal-node__outputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.unreal-node__inputs .input-socket,
+.unreal-node__outputs .output-socket {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.unreal-node__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 180px;
+  width: 100%;
+}
+
+.unreal-node__socket-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.unreal-node__inputs .unreal-node__socket-row {
+  justify-content: flex-start;
+}
+
+.unreal-node__outputs .unreal-node__socket-row {
+  justify-content: flex-end;
+}
+
+.unreal-node__socket-label {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  color: rgba(240, 240, 240, 0.78);
+}
+
+.unreal-node .input-socket,
+.unreal-node .output-socket {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  transition: transform 0.15s ease;
+}
+
+.unreal-node .input-socket:hover,
+.unreal-node .output-socket:hover {
+  transform: scale(1.05);
+}
+
+.unreal-node__inputs .input-socket {
+  order: -1;
+  margin-left: -26px;
+}
+
+.unreal-node__outputs .output-socket {
+  margin-right: -26px;
+}
+
+.unreal-socket {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 168, 66, 0.9);
+  background: radial-gradient(circle, rgba(255, 140, 20, 0.95) 0%, rgba(140, 60, 0, 0.85) 85%);
+  box-shadow: 0 0 14px rgba(255, 140, 20, 0.45);
+  pointer-events: none;
+}
+
+.unreal-node .input-socket:hover .unreal-socket,
+.unreal-node .output-socket:hover .unreal-socket {
+  box-shadow: 0 0 20px rgba(255, 160, 60, 0.75);
+}
+
+.unreal-node[data-collapsed='true'] .unreal-node__body {
+  display: none;
+}
+
+.control-block {
+  background: rgba(48, 48, 49, 0.88);
+  border: 1px solid rgba(255, 140, 20, 0.35);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 140, 20, 0.18);
+}
+
+.control-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 170, 90, 0.92);
+}
+
+.control-block input[type='file'] {
+  font-size: 0.78rem;
+  color: #f2f2f2;
+  background: rgba(52, 52, 53, 0.75);
+  border: 1px solid rgba(255, 140, 20, 0.35);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.thumbnail img,
+.preview-frame img,
+.channel-tile img {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(73, 118, 213, 0.35);
+  background: rgba(10, 12, 18, 0.85);
+}
+
+.thumbnail .meta-row,
+.preview-frame .meta-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: rgba(230, 230, 230, 0.75);
+}
+
+.thumbnail button,
+.meta-row button,
+.mode-selector button {
+  background: rgba(60, 60, 61, 0.85);
+  border: 1px solid rgba(255, 143, 37, 0.45);
+  color: #ffe4cc;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.thumbnail button:hover,
+.meta-row button:hover,
+.mode-selector button:hover {
+  background: rgba(255, 128, 0, 0.45);
+}
+
+.channel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.channel-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: rgba(236, 236, 236, 0.78);
+  text-align: center;
+}
+
+.channel-label {
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #ff9e46;
+}
+
+.channel-placeholder {
+  font-size: 0.72rem;
+  color: rgba(210, 210, 210, 0.6);
+  border: 1px dashed rgba(255, 143, 37, 0.35);
+  border-radius: 8px;
+  padding: 12px 6px;
+}
+
+.preview-canvas {
+  width: 100%;
+  height: 220px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 140, 20, 0.3);
+  background: radial-gradient(circle at 50% 0%, rgba(255, 140, 20, 0.25), transparent 70%), rgba(15, 15, 16, 0.95);
+}
+
+.mode-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-selector button {
+  flex: 1;
+  font-size: 0.78rem;
+}
+
+.mode-selector button.active {
+  background: linear-gradient(180deg, rgba(255, 140, 20, 0.95), rgba(200, 90, 0, 0.85));
+  border-color: rgba(255, 180, 90, 0.7);
+  box-shadow: 0 8px 20px rgba(255, 140, 20, 0.35);
+}
+
+.unreal-node__control-slot {
+  display: flex;
+  flex-direction: column;
+}
+
+.unreal-node__inline-control {
+  flex: 1;
+}
+
+.unreal-node__control-slot--fill {
+  flex: 1 1 auto;
+}
+
+.control-block--fill {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.control-block--fill .mode-selector {
+  margin-bottom: 8px;
+}
+
+.preview-canvas-wrapper {
+  flex: 1 1 auto;
+  display: flex;
+  width: 100%;
+}
+
+.preview-canvas-wrapper canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.unreal-node__resize-handle {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 140, 20, 0.6);
+  background: linear-gradient(135deg, rgba(255, 140, 20, 0.75), rgba(140, 60, 0, 0.75));
+  cursor: nwse-resize;
+  box-shadow: 0 0 12px rgba(255, 140, 20, 0.35);
+}
+
+.unreal-node[data-collapsed='true'] .unreal-node__resize-handle {
+  display: none;
+}
+
+.unreal-node {
+  position: relative;
+}
+
+.rete-connection path,
+[data-testid='connection'] path {
+  stroke: rgba(255, 128, 0, 0.85) !important;
+  stroke-width: 3px !important;
+}
