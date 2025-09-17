@@ -17,6 +17,8 @@ import type {
   PreviewMode,
   HunyuanParams,
   HunyuanSerializedState,
+  HunyuanTextureParams,
+  HunyuanTextureSerializedState,
   RemoveBgParams,
   RemoveBgSerializedState,
   TripoParams,
@@ -58,6 +60,18 @@ const DEFAULT_REMOVE_BG_PARAMS: RemoveBgParams = {
   transparent: true,
   color: '#ffffff',
   unloadModel: true,
+}
+
+const DEFAULT_HUNYUAN_TEXTURE_PARAMS: HunyuanTextureParams = {
+  seed: 1234,
+  randomizeSeed: true,
+  maxViewCount: 6,
+  viewResolution: 512,
+  numInferenceSteps: 15,
+  guidanceScale: 3,
+  targetFaceCount: 40000,
+  remeshMesh: true,
+  unloadModelAfterGeneration: true,
 }
 
 export class ReactiveControl extends ClassicPreset.Control {
@@ -342,6 +356,180 @@ export class HunyuanGenerationControl extends ReactiveControl {
       const updatedSeed = Number(payload.seed)
       if (Number.isFinite(updatedSeed)) {
         this.params = { ...this.params, seed: updatedSeed }
+      }
+
+      this.isGenerating = false
+      this.notify()
+      onGraphChange()
+    } catch (error) {
+      this.isGenerating = false
+      this.error = error instanceof Error ? error.message : 'Unknown error'
+      this.notify()
+    }
+  }
+}
+
+export class HunyuanTextureGenerationControl extends ReactiveControl {
+  params: HunyuanTextureParams = { ...DEFAULT_HUNYUAN_TEXTURE_PARAMS }
+  model: ModelValue | null = null
+  albedo: ImageValue | null = null
+  rm: ImageValue | null = null
+  isGenerating = false
+  error: string | null = null
+  private inputImage: ImageValue | null = null
+  private inputModel: ModelValue | null = null
+
+  setInputImage(image: ImageValue | undefined) {
+    this.inputImage = image ?? null
+    this.notify()
+  }
+
+  setInputModel(model: ModelValue | undefined) {
+    this.inputModel = model ?? null
+    this.notify()
+  }
+
+  hasRequiredInputs(): boolean {
+    return this.inputImage !== null && this.inputModel !== null
+  }
+
+  updateParam<K extends keyof HunyuanTextureParams>(key: K, value: HunyuanTextureParams[K]) {
+    this.params = { ...this.params, [key]: value }
+    this.notify()
+  }
+
+  applySerialized(state?: HunyuanTextureSerializedState) {
+    if (!state) return
+    this.params = { ...DEFAULT_HUNYUAN_TEXTURE_PARAMS, ...state.params }
+
+    if (state.modelBase64 && state.modelMimeType && state.modelFileName) {
+      const buffer = base64ToArrayBuffer(state.modelBase64)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: state.modelFileName,
+        mimeType: state.modelMimeType,
+      }
+    }
+
+    if (state.albedoDataUrl) {
+      this.albedo = {
+        kind: 'image',
+        dataUrl: state.albedoDataUrl,
+        fileName: state.albedoFileName,
+      }
+    }
+
+    if (state.rmDataUrl) {
+      this.rm = {
+        kind: 'image',
+        dataUrl: state.rmDataUrl,
+        fileName: state.rmFileName,
+      }
+    }
+
+    this.notify()
+  }
+
+  serialize(): HunyuanTextureSerializedState {
+    const base: HunyuanTextureSerializedState = { params: { ...this.params } }
+
+    if (this.model) {
+      base.modelBase64 = arrayBufferToBase64(this.model.arrayBuffer)
+      base.modelFileName = this.model.fileName
+      base.modelMimeType = this.model.mimeType
+    }
+
+    if (this.albedo) {
+      base.albedoDataUrl = this.albedo.dataUrl
+      base.albedoFileName = this.albedo.fileName
+    }
+
+    if (this.rm) {
+      base.rmDataUrl = this.rm.dataUrl
+      base.rmFileName = this.rm.fileName
+    }
+
+    return base
+  }
+
+  async generate(onGraphChange: () => void) {
+    if (!this.hasRequiredInputs() || !this.inputModel || !this.inputImage) {
+      this.error = 'Connect both a model and an image before generating textures.'
+      this.notify()
+      return
+    }
+
+    this.isGenerating = true
+    this.error = null
+    this.notify()
+
+    try {
+      const response = await fetch(`${BACKEND_BASE}/hunyuan/texture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_base64: arrayBufferToBase64(this.inputModel.arrayBuffer),
+          image_data_url: this.inputImage.dataUrl,
+          seed: this.params.seed,
+          randomize_seed: this.params.randomizeSeed,
+          max_view_count: this.params.maxViewCount,
+          view_resolution: this.params.viewResolution,
+          num_inference_steps: this.params.numInferenceSteps,
+          target_face_count: this.params.targetFaceCount,
+          guidance_scale: this.params.guidanceScale,
+          remesh_mesh: this.params.remeshMesh,
+          unload_model_after_generation: this.params.unloadModelAfterGeneration,
+        }),
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || 'Failed to generate textures')
+      }
+
+      const payload = await response.json()
+
+      if (!payload.glb_base64) {
+        throw new Error('Response did not include model data')
+      }
+
+      const buffer = base64ToArrayBuffer(payload.glb_base64 as string)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: payload.file_name ?? 'hunyuan-textured.glb',
+        mimeType: payload.mime_type ?? 'model/gltf-binary',
+      }
+
+      if (payload.albedo_base64) {
+        const mime = payload.albedo_mime_type ?? 'image/jpeg'
+        this.albedo = {
+          kind: 'image',
+          dataUrl: `data:${mime};base64,${payload.albedo_base64}`,
+          fileName: payload.albedo_file_name ?? 'hunyuan-albedo.jpg',
+          width: typeof payload.albedo_width === 'number' ? payload.albedo_width : undefined,
+          height: typeof payload.albedo_height === 'number' ? payload.albedo_height : undefined,
+        }
+      } else {
+        this.albedo = null
+      }
+
+      if (payload.rm_base64) {
+        const mime = payload.rm_mime_type ?? 'image/png'
+        this.rm = {
+          kind: 'image',
+          dataUrl: `data:${mime};base64,${payload.rm_base64}`,
+          fileName: payload.rm_file_name ?? 'hunyuan-metallic-roughness.png',
+          width: typeof payload.rm_width === 'number' ? payload.rm_width : undefined,
+          height: typeof payload.rm_height === 'number' ? payload.rm_height : undefined,
+        }
+      } else {
+        this.rm = null
+      }
+
+      if (typeof payload.seed === 'number') {
+        this.params = { ...this.params, seed: payload.seed }
       }
 
       this.isGenerating = false
@@ -811,6 +999,132 @@ export function HunyuanGenerationControlView(props: {
         Unload models after generation
       </label>
       {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}
+    </div>
+  )
+}
+
+export function HunyuanTextureGenerationControlView(props: {
+  control: HunyuanTextureGenerationControl
+  onGraphChange: () => void
+}) {
+  const { control, onGraphChange } = props
+  const [, forceUpdate] = useState(0)
+
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  const params = control.params
+  const disableGenerate = control.isGenerating || !control.hasRequiredInputs()
+
+  const handleNumberChange = (key: keyof HunyuanTextureParams) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = Number(event.target.value)
+      if (Number.isFinite(value)) {
+        control.updateParam(key, value as any)
+      }
+    }
+
+  return (
+    <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
+      <div className="control-label">Generate Hy 2.1 Texture</div>
+      {control.error && <div className="control-error">{control.error}</div>}
+      {!control.hasRequiredInputs() && (
+        <div className="control-hint">Connect both an image and a model to enable texture generation.</div>
+      )}
+      <div className="tripo-grid">
+        <label>
+          Seed
+          <input type="number" value={params.seed} onChange={handleNumberChange('seed')} />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.randomizeSeed}
+            onChange={(event) => control.updateParam('randomizeSeed', event.target.checked)}
+          />
+          Randomize seed
+        </label>
+        <label>
+          View Resolution
+          <select
+            value={params.viewResolution}
+            onChange={(event) => control.updateParam('viewResolution', Number(event.target.value))}
+          >
+            {[512, 768, 1024].map((value) => (
+              <option key={value} value={value}>
+                {value}px
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          View Count
+          <input
+            type="number"
+            value={params.maxViewCount}
+            min={3}
+            max={24}
+            onChange={handleNumberChange('maxViewCount')}
+          />
+        </label>
+        <label>
+          Steps
+          <input
+            type="number"
+            value={params.numInferenceSteps}
+            min={1}
+            max={200}
+            onChange={handleNumberChange('numInferenceSteps')}
+          />
+        </label>
+        <label>
+          Target Face Count
+          <input
+            type="number"
+            value={params.targetFaceCount}
+            min={1000}
+            step={1000}
+            onChange={handleNumberChange('targetFaceCount')}
+          />
+        </label>
+        <label>
+          Guidance
+          <input
+            type="number"
+            value={params.guidanceScale}
+            min={0}
+            max={20}
+            step={0.1}
+            onChange={(event) => {
+              const value = Number(event.target.value)
+              if (Number.isFinite(value)) {
+                control.updateParam('guidanceScale', value)
+              }
+            }}
+          />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.remeshMesh}
+            onChange={(event) => control.updateParam('remeshMesh', event.target.checked)}
+          />
+          Remesh input model
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.unloadModelAfterGeneration}
+            onChange={(event) => control.updateParam('unloadModelAfterGeneration', event.target.checked)}
+          />
+          Unload models after generation
+        </label>
+      </div>
+      <button type="button" onClick={() => void control.generate(onGraphChange)} disabled={disableGenerate}>
+        {control.isGenerating ? 'Generating…' : 'Generate Texture'}
+      </button>
+      {control.model && <div className="control-hint">Textured model ready: {control.model.fileName}</div>}
+      {control.albedo && <div className="control-hint">Albedo ready: {control.albedo.fileName ?? 'albedo'}</div>}
+      {control.rm && <div className="control-hint">Roughness/Metallic ready: {control.rm.fileName ?? 'rm'}</div>}
     </div>
   )
 }

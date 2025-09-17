@@ -40,6 +40,7 @@ export type NodeKind =
   | 'preview3d'
   | 'generateTripoModel'
   | 'generateHy21Model'
+  | 'generateHy21Texture'
   | 'removeBackground'
   | 'saveModel'
   | 'saveImage'
@@ -66,6 +67,7 @@ export interface SerializedNodeState {
   mode?: PreviewMode
   tripo?: TripoSerializedState
   hunyuan?: HunyuanSerializedState
+  hunyuanTexture?: HunyuanTextureSerializedState
   removeBg?: RemoveBgSerializedState
 }
 
@@ -132,6 +134,29 @@ export interface HunyuanSerializedState {
   modelBase64?: string
   modelMimeType?: string
   modelFileName?: string
+}
+
+export interface HunyuanTextureParams {
+  seed: number
+  randomizeSeed: boolean
+  maxViewCount: number
+  viewResolution: number
+  numInferenceSteps: number
+  guidanceScale: number
+  targetFaceCount: number
+  remeshMesh: boolean
+  unloadModelAfterGeneration: boolean
+}
+
+export interface HunyuanTextureSerializedState {
+  params: HunyuanTextureParams
+  modelBase64?: string
+  modelMimeType?: string
+  modelFileName?: string
+  albedoDataUrl?: string
+  albedoFileName?: string
+  rmDataUrl?: string
+  rmFileName?: string
 }
 
 export interface RemoveBgParams {

@@ -21,6 +21,8 @@ import {
   Preview3DControlView,
   HunyuanGenerationControl,
   HunyuanGenerationControlView,
+  HunyuanTextureGenerationControl,
+  HunyuanTextureGenerationControlView,
   BackgroundRemovalControl,
   BackgroundRemovalControlView,
   TripoGenerationControl,
@@ -170,6 +172,23 @@ class GenerateHy21ModelNode extends FoldableNode {
   }
 }
 
+class GenerateHy21TextureNode extends FoldableNode {
+  readonly generator: HunyuanTextureGenerationControl
+
+  constructor() {
+    super('Generate Hy 2.1 Texture', 'generateHy21Texture')
+    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Reference'))
+    this.addInput('model', new ClassicPreset.Input(modelSocket, 'Model'))
+    this.addOutput('model', new ClassicPreset.Output(modelSocket, 'Model'))
+    this.addOutput('albedo', new ClassicPreset.Output(imageSocket, 'Albedo'))
+    this.addOutput('rm', new ClassicPreset.Output(imageSocket, 'Metal/Rough'))
+    this.generator = new HunyuanTextureGenerationControl(this.id)
+    this.addControl('generate', this.generator)
+    this.width = 460
+    this.height = 380
+  }
+}
+
 class RemoveBackgroundNode extends FoldableNode {
   readonly processor: BackgroundRemovalControl
 
@@ -217,6 +236,7 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   preview3d: () => new Preview3DNode(),
   generateTripoModel: () => new GenerateTripoModelNode(),
   generateHy21Model: () => new GenerateHy21ModelNode(),
+  generateHy21Texture: () => new GenerateHy21TextureNode(),
   removeBackground: () => new RemoveBackgroundNode(),
   saveModel: () => new SaveModelNode(),
   saveImage: () => new SaveImageNode(),
@@ -261,6 +281,7 @@ const NODE_CATALOG: NodeCatalogCategory[] = [
     entries: [
       { kind: 'generateTripoModel', label: 'Generate Tripo Model', description: 'Create 3D geometry from a reference image.' },
       { kind: 'generateHy21Model', label: 'Generate Hy 2.1 Model', description: 'Generate geometry using the Hunyuan3D-2.1 pipeline.' },
+      { kind: 'generateHy21Texture', label: 'Generate Hy 2.1 Texture', description: 'Produce PBR textures for an existing mesh.' },
     ],
   },
 ]
@@ -575,6 +596,12 @@ function captureNodeState(node: FoldableNode): SerializedNodeState {
     }
   }
 
+  if (node instanceof GenerateHy21TextureNode) {
+    return {
+      hunyuanTexture: node.generator.serialize(),
+    }
+  }
+
   if (node instanceof RemoveBackgroundNode) {
     return {
       removeBg: node.processor.serialize(),
@@ -614,6 +641,10 @@ function applyNodeState(node: FoldableNode, state?: SerializedNodeState) {
 
   if (node instanceof GenerateHy21ModelNode && state.hunyuan) {
     node.generator.applySerialized(state.hunyuan)
+  }
+
+  if (node instanceof GenerateHy21TextureNode && state.hunyuanTexture) {
+    node.generator.applySerialized(state.hunyuanTexture)
   }
 
   if (node instanceof RemoveBackgroundNode && state.removeBg) {
@@ -832,6 +863,10 @@ function renderControlComponent(control: ClassicPreset.Control, onGraphChange: (
     return <HunyuanGenerationControlView control={control} onGraphChange={onGraphChange} />
   }
 
+  if (control instanceof HunyuanTextureGenerationControl) {
+    return <HunyuanTextureGenerationControlView control={control} onGraphChange={onGraphChange} />
+  }
+
   if (control instanceof BackgroundRemovalControl) {
     return <BackgroundRemovalControlView control={control} onGraphChange={onGraphChange} />
   }
@@ -958,6 +993,19 @@ async function evaluateNode(
     const image = inputs.image as ImageValue | undefined
     control?.setInputImage(image)
     return control?.model ? { model: control.model } : {}
+  }
+
+  if (node instanceof GenerateHy21TextureNode) {
+    const control = node.controls.generate as HunyuanTextureGenerationControl | undefined
+    const image = inputs.image as ImageValue | undefined
+    const model = inputs.model as ModelValue | undefined
+    control?.setInputImage(image)
+    control?.setInputModel(model)
+    const result: NodeOutputMap = {}
+    if (control?.model) result.model = control.model
+    if (control?.albedo) result.albedo = control.albedo
+    if (control?.rm) result.rm = control.rm
+    return result
   }
 
   if (node instanceof RemoveBackgroundNode) {

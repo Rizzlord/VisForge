@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .triposg_service import TripoParams, triposg_service
 from .hunyuan_service import HunyuanParams, hunyuan_service
+from .hunyuan_texture_service import HunyuanTextureParams, hunyuan_texture_service
 from .rmbg_service import rmbg_service
 from PIL import Image
 
@@ -271,6 +272,39 @@ class HunyuanResponse(BaseModel):
     seed: int
 
 
+class HunyuanTextureRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_base64: str = Field(..., description="GLB model encoded as base64")
+    image_data_url: str = Field(..., description="Reference image data URL (base64)")
+    seed: int = Field(1234, ge=0, le=0xFFFFFFFF)
+    randomize_seed: bool = Field(True, description="Randomize seed before texture generation")
+    max_view_count: int = Field(6, ge=3, le=24)
+    view_resolution: int = Field(512, ge=256, le=1024)
+    num_inference_steps: int = Field(15, ge=1, le=200)
+    guidance_scale: float = Field(3.0, ge=0.0, le=20.0)
+    target_face_count: int = Field(40000, ge=1000, le=5_000_000)
+    remesh_mesh: bool = Field(True, description="Enable preprocessing remeshing")
+    unload_model_after_generation: bool = Field(True, description="Release texture weights after run")
+
+
+class HunyuanTextureResponse(BaseModel):
+    glb_base64: str
+    file_name: str = "hunyuan-textured.glb"
+    mime_type: str = "model/gltf-binary"
+    seed: int
+    albedo_base64: str
+    albedo_file_name: str = "hunyuan-albedo.jpg"
+    albedo_mime_type: str = "image/jpeg"
+    albedo_width: int
+    albedo_height: int
+    rm_base64: str
+    rm_file_name: str = "hunyuan-metallic-roughness.png"
+    rm_mime_type: str = "image/png"
+    rm_width: int
+    rm_height: int
+
+
 @app.post("/execute")
 async def execute_graph(graph: GraphPayload) -> Dict[str, Any]:
     """Validate and topologically order the submitted graph."""
@@ -383,6 +417,33 @@ async def hunyuan_generate(request: HunyuanRequest) -> HunyuanResponse:
         mime_type=str(metadata.get("mime_type", "model/gltf-binary")),
         seed=int(metadata.get("seed", request.seed)),
     )
+
+
+@app.post("/hunyuan/texture", response_model=HunyuanTextureResponse)
+async def hunyuan_texture_generate(request: HunyuanTextureRequest) -> HunyuanTextureResponse:
+    params = HunyuanTextureParams(
+        seed=request.seed,
+        randomize_seed=request.randomize_seed,
+        max_view_count=request.max_view_count,
+        view_resolution=request.view_resolution,
+        num_inference_steps=request.num_inference_steps,
+        guidance_scale=request.guidance_scale,
+        target_face_count=request.target_face_count,
+        remesh_mesh=request.remesh_mesh,
+        unload_model_after_generation=request.unload_model_after_generation,
+    )
+
+    async with hunyuan_texture_service.lock:
+        try:
+            result = await hunyuan_texture_service.generate(
+                request.model_base64,
+                request.image_data_url,
+                params,
+            )
+        except Exception as exc:  # pragma: no cover - runtime
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return HunyuanTextureResponse(**result)
 
 
 class RemoveBackgroundRequest(BaseModel):
