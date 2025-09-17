@@ -10,9 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.27.2",
-    "@babylonjs/loaders": "^8.27.2",
-    "@babylonjs/materials": "^8.27.2",
     "classnames": "^2.5.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -21,12 +18,14 @@
     "rete-connection-plugin": "^2.0.5",
     "rete-react-plugin": "^2.1.0",
     "rete-render-utils": "^2.0.3",
+    "three": "^0.170.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
+    "@types/three": "^0.170.0",
     "@vitejs/plugin-react": "^5.0.0",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",

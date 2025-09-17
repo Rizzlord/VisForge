@@ -1,18 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { ClassicPreset } from 'rete'
-import { Engine } from '@babylonjs/core/Engines/engine'
-import { Scene } from '@babylonjs/core/scene'
-import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
-import { Vector3 } from '@babylonjs/core/Maths/math.vector'
-import { Color3 } from '@babylonjs/core/Maths/math.color'
-import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh'
-import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader'
-import { Material } from '@babylonjs/core/Materials/material'
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
-import { NormalMaterial } from '@babylonjs/materials/normal/normalMaterial'
-import '@babylonjs/loaders'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 import { fileToImageValue, fileToModelValue, base64ToArrayBuffer, arrayBufferToBase64 } from './imageUtils'
 import { useGraphStore } from './store'
@@ -623,7 +614,7 @@ export function Preview3DControlView(props: {
     <div className={`control-block${fill ? ' control-block--fill' : ''}`}>
       <div className="control-label">Preview 3D</div>
       <ModeSelector mode={control.mode} onSelect={(m) => control.setMode(m)} />
-      <BabylonViewport mode={control.mode} model={model} />
+      <ThreeViewport mode={control.mode} model={model} />
     </div>
   )
 }
@@ -776,9 +767,6 @@ export function HunyuanGenerationControlView(props: {
         </label>
         <label className="checkbox">
           <input type="checkbox" checked={params.randomizeSeed} onChange={handleCheckbox('randomizeSeed')} /> Randomize seed
-        </label>
-        <label className="checkbox">
-          <input type="checkbox" checked={params.removeBackground} onChange={handleCheckbox('removeBackground')} /> Remove background
         </label>
         <label>
           Steps
@@ -969,161 +957,220 @@ function ModeSelector(props: { mode: PreviewMode; onSelect: (mode: PreviewMode) 
   )
 }
 
-function BabylonViewport(props: { mode: PreviewMode; model?: ModelValue }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+function ThreeViewport(props: { mode: PreviewMode; model?: ModelValue }) {
   const { mode, model } = props
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const sceneRef = useRef<THREE.Scene | null>(null)
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
+  const controlsRef = useRef<OrbitControls | null>(null)
+  const groupRef = useRef<THREE.Group | null>(null)
+  const frameRef = useRef<number | null>(null)
+  const loaderRef = useRef(new GLTFLoader())
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    const container = containerRef.current
+    if (!container) return
 
-    const engine = new Engine(canvas, true, { stencil: true })
-    const scene = new Scene(engine)
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.setSize(container.clientWidth, container.clientHeight)
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.domElement.classList.add('preview-canvas')
+    container.appendChild(renderer.domElement)
+    rendererRef.current = renderer
 
-    const camera = new ArcRotateCamera('camera', Math.PI / 2, Math.PI / 3, 6, Vector3.Zero(), scene)
-    camera.attachControl(canvas, false)
-    const light = new HemisphericLight('light1', new Vector3(0, 1, 0), scene)
-    light.intensity = 0.9
+    const scene = new THREE.Scene()
+    sceneRef.current = scene
 
-    let cleanup = () => {}
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / Math.max(container.clientHeight, 1), 0.1, 100)
+    camera.position.set(3, 2, 5)
+    cameraRef.current = camera
 
-    const setupScene = async () => {
-      cleanup()
-      const meshes = await loadModelOrFallback(scene, model)
-      applyMode(meshes, scene, mode)
-      cleanup = () => {
-        meshes.forEach((mesh) => mesh.dispose())
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.05
+    controlsRef.current = controls
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.9))
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9)
+    dirLight.position.set(5, 10, 7.5)
+    scene.add(dirLight)
+
+    const handleResize = () => {
+      const host = containerRef.current
+      if (!host || !rendererRef.current || !cameraRef.current) return
+      const { clientWidth, clientHeight } = host
+      rendererRef.current.setSize(clientWidth, clientHeight)
+      cameraRef.current.aspect = clientWidth / Math.max(clientHeight, 1)
+      cameraRef.current.updateProjectionMatrix()
+    }
+
+    const resizeObserver = new ResizeObserver(handleResize)
+    resizeObserver.observe(container)
+    window.addEventListener('resize', handleResize)
+    handleResize()
+
+    const animate = () => {
+      controls.update()
+      renderer.render(scene, camera)
+      frameRef.current = requestAnimationFrame(animate)
+    }
+    frameRef.current = requestAnimationFrame(animate)
+
+    return () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', handleResize)
+      if (groupRef.current) {
+        scene.remove(groupRef.current)
+        disposeObject(groupRef.current)
+        groupRef.current = null
+      }
+      controls.dispose()
+      renderer.dispose()
+      if (renderer.domElement.parentNode === container) {
+        container.removeChild(renderer.domElement)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const scene = sceneRef.current
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    const renderer = rendererRef.current
+    if (!scene || !camera || !controls || !renderer) return
+
+    let cancelled = false
+
+    const loadModel = async () => {
+      if (groupRef.current) {
+        scene.remove(groupRef.current)
+        disposeObject(groupRef.current)
+        groupRef.current = null
+      }
+
+      if (!model) {
+        renderer.render(scene, camera)
+        return
+      }
+
+      const blob = new Blob([model.arrayBuffer], { type: model.mimeType })
+      const url = URL.createObjectURL(blob)
+
+      try {
+        const gltf = await loaderRef.current.loadAsync(url)
+        if (cancelled) {
+          disposeObject(gltf.scene)
+          return
+        }
+        groupRef.current = gltf.scene
+        scene.add(gltf.scene)
+        applyThreeMode(gltf.scene, mode)
+        frameObject(camera, controls, gltf.scene)
+      } catch (error) {
+        console.warn('Failed to import model for preview.', error)
+      } finally {
+        URL.revokeObjectURL(url)
       }
     }
 
-    setupScene()
-
-    const handlePointerEnter = () => {
-      camera.attachControl(canvas, false)
-    }
-
-    const handlePointerLeave = () => {
-      camera.detachControl()
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      event.stopPropagation()
-      event.preventDefault()
-      camera.attachControl(canvas, false)
-    }
-
-    const handleWheel = (event: WheelEvent) => {
-      event.stopPropagation()
-      event.preventDefault()
-    }
-
-    const resize = () => engine.resize()
-    const observer = new ResizeObserver(() => engine.resize())
-    observer.observe(canvas)
-    window.addEventListener('resize', resize)
-    canvas.addEventListener('mouseenter', handlePointerEnter)
-    canvas.addEventListener('mouseleave', handlePointerLeave)
-    canvas.addEventListener('pointerdown', handlePointerDown)
-    canvas.addEventListener('wheel', handleWheel, { passive: false })
-    canvas.tabIndex = 0
-    camera.detachControl()
-
-    engine.runRenderLoop(() => {
-      applyMode(scene.meshes, scene, mode)
-      scene.render()
-    })
+    loadModel()
 
     return () => {
-      canvas.removeEventListener('mouseenter', handlePointerEnter)
-      canvas.removeEventListener('mouseleave', handlePointerLeave)
-      window.removeEventListener('resize', resize)
-      observer.disconnect()
-      cleanup()
-      scene.dispose()
-      engine.dispose()
-      canvas.removeEventListener('pointerdown', handlePointerDown)
-      canvas.removeEventListener('wheel', handleWheel, { passive: false } as EventListenerOptions)
+      cancelled = true
     }
-  }, [mode, model])
+  }, [model])
+
+  useEffect(() => {
+    if (groupRef.current) {
+      applyThreeMode(groupRef.current, mode)
+    }
+  }, [mode])
 
   return (
-    <div className="preview-canvas-wrapper">
+    <div className="preview-canvas-wrapper" ref={containerRef}>
       {!model && <div className="control-hint">Connect a model to preview.</div>}
-      <canvas className="preview-canvas" ref={canvasRef} />
     </div>
   )
 }
 
-async function loadModelOrFallback(scene: Scene, model?: ModelValue): Promise<AbstractMesh[]> {
-  if (!model) {
-    return []
-  }
+function applyThreeMode(root: THREE.Object3D | null, mode: PreviewMode) {
+  if (!root) return
+  root.traverse((child: THREE.Object3D) => {
+    if (!(child instanceof THREE.Mesh)) return
+    const mesh = child as THREE.Mesh
+    const store = mesh.userData as {
+      baseMaterial?: THREE.MeshStandardMaterial
+      normalMaterial?: THREE.MeshNormalMaterial
+    }
 
-  const blob = new Blob([model.arrayBuffer], { type: model.mimeType })
-  const url = URL.createObjectURL(blob)
-  const pluginExtension = inferPluginExtension(model)
+    if (!store.baseMaterial) {
+      store.baseMaterial = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, metalness: 0.2, roughness: 0.75 })
+    }
+    if (!store.normalMaterial) {
+      store.normalMaterial = new THREE.MeshNormalMaterial()
+    }
 
-  try {
-    const result = await SceneLoader.ImportMeshAsync('', '', url, scene, undefined, pluginExtension)
-    return result.meshes.filter((mesh) => mesh instanceof AbstractMesh)
-  } catch (error) {
-    console.warn('Failed to import model, using fallback mesh.', error)
-    return []
-  } finally {
-    URL.revokeObjectURL(url)
-  }
+    if (mode === 'Base') {
+      store.baseMaterial.wireframe = false
+      mesh.material = store.baseMaterial
+    } else if (mode === 'Wire') {
+      store.baseMaterial.wireframe = true
+      mesh.material = store.baseMaterial
+    } else {
+      mesh.material = store.normalMaterial
+    }
+  })
 }
 
-function applyMode(meshes: AbstractMesh[], scene: Scene, mode: PreviewMode) {
-  meshes
-    .filter((mesh) => mesh.material)
-    .forEach((mesh) => {
-      const baseMaterial = mesh.material as Material
-
-      if (mode === 'Base') {
-        if (baseMaterial instanceof NormalMaterial) {
-          baseMaterial.dispose()
-          mesh.material = new StandardMaterial(`${mesh.name}-base`, scene)
-        }
-        if (mesh.material instanceof StandardMaterial) {
-          mesh.material.wireframe = false
-          mesh.material.diffuseColor = new Color3(0.8, 0.8, 0.8)
-        }
+function disposeObject(object: THREE.Object3D) {
+  const materials = new Set<THREE.Material>()
+  object.traverse((child: THREE.Object3D) => {
+    if (child instanceof THREE.Mesh) {
+      const mesh = child as THREE.Mesh
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((mat) => {
+          if (mat) materials.add(mat)
+        })
+      } else if (mesh.material) {
+        materials.add(mesh.material as THREE.Material)
       }
-
-      if (mode === 'Wire') {
-        if (!(mesh.material instanceof StandardMaterial)) {
-          mesh.material = new StandardMaterial(`${mesh.name}-wire`, scene)
-        }
-        ;(mesh.material as StandardMaterial).wireframe = true
-        ;(mesh.material as StandardMaterial).diffuseColor = new Color3(0.6, 0.9, 1)
+      const store = mesh.userData as {
+        baseMaterial?: THREE.Material
+        normalMaterial?: THREE.Material
       }
+      if (store.baseMaterial) materials.add(store.baseMaterial)
+      if (store.normalMaterial) materials.add(store.normalMaterial)
+      if (mesh.geometry) mesh.geometry.dispose()
+      mesh.userData.baseMaterial = undefined
+      mesh.userData.normalMaterial = undefined
+    }
+  })
+  materials.forEach((material) => {
+    if (material.dispose) material.dispose()
+  })
+}
 
-      if (mode === 'Norm') {
-        const normalMaterial = new NormalMaterial(`${mesh.name}-normals`, scene)
-        mesh.material = normalMaterial
-      }
-    })
+function frameObject(camera: THREE.PerspectiveCamera | null, controls: OrbitControls | null, object: THREE.Object3D | null) {
+  if (!camera || !controls || !object) return
+  const box = new THREE.Box3().setFromObject(object)
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const maxDim = Math.max(size.x, size.y, size.z)
+  const safeDim = Math.max(maxDim, 0.1)
+  const distance = safeDim / Math.max(Math.tan((camera.fov * Math.PI) / 360), 0.01)
+  const offset = 1.6
+  const direction = new THREE.Vector3(1, 0.8, 1).normalize()
+  camera.position.copy(center.clone().add(direction.multiplyScalar(distance * offset)))
+  camera.near = Math.max(distance / 100, 0.1)
+  camera.far = distance * 100
+  camera.updateProjectionMatrix()
+  controls.target.copy(center)
+  controls.update()
 }
 
 function useGraphOutputs(nodeId: string) {
   return useGraphStore((state) => state.outputs[nodeId] ?? EMPTY_OUTPUTS)
-}
-
-function inferPluginExtension(model: ModelValue): string | undefined {
-  if (model.fileName) {
-    const lower = model.fileName.trim().toLowerCase()
-    if (lower.endsWith('.glb')) return '.glb'
-    if (lower.endsWith('.gltf')) return '.gltf'
-    if (lower.endsWith('.obj')) return '.obj'
-    if (lower.endsWith('.stl')) return '.stl'
-  }
-
-  const mime = model.mimeType.toLowerCase()
-  if (mime.includes('glb') || mime === 'model/gltf-binary') return '.glb'
-  if (mime.includes('gltf')) return '.gltf'
-  if (mime.includes('obj')) return '.obj'
-  if (mime.includes('stl')) return '.stl'
-
-  return undefined
 }
