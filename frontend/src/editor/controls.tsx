@@ -990,6 +990,8 @@ function ThreeViewport(props: { mode: PreviewMode; model?: ModelValue }) {
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.05
+    controls.enablePan = true
+    controls.screenSpacePanning = false
     controlsRef.current = controls
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.9))
@@ -1102,23 +1104,27 @@ function applyThreeMode(root: THREE.Object3D | null, mode: PreviewMode) {
     if (!(child instanceof THREE.Mesh)) return
     const mesh = child as THREE.Mesh
     const store = mesh.userData as {
-      baseMaterial?: THREE.MeshStandardMaterial
+      originalMaterial?: THREE.Material | THREE.Material[]
+      wireMaterial?: THREE.MeshBasicMaterial
       normalMaterial?: THREE.MeshNormalMaterial
     }
 
-    if (!store.baseMaterial) {
-      store.baseMaterial = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, metalness: 0.2, roughness: 0.75 })
+    if (!store.originalMaterial) {
+      store.originalMaterial = Array.isArray(mesh.material)
+        ? mesh.material.map((mat) => mat)
+        : (mesh.material as THREE.Material)
+    }
+    if (!store.wireMaterial) {
+      store.wireMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.85 })
     }
     if (!store.normalMaterial) {
       store.normalMaterial = new THREE.MeshNormalMaterial()
     }
 
     if (mode === 'Base') {
-      store.baseMaterial.wireframe = false
-      mesh.material = store.baseMaterial
+      mesh.material = store.originalMaterial as THREE.Material | THREE.Material[]
     } else if (mode === 'Wire') {
-      store.baseMaterial.wireframe = true
-      mesh.material = store.baseMaterial
+      mesh.material = store.wireMaterial
     } else {
       mesh.material = store.normalMaterial
     }
@@ -1138,13 +1144,21 @@ function disposeObject(object: THREE.Object3D) {
         materials.add(mesh.material as THREE.Material)
       }
       const store = mesh.userData as {
-        baseMaterial?: THREE.Material
+        originalMaterial?: THREE.Material | THREE.Material[]
+        wireMaterial?: THREE.Material
         normalMaterial?: THREE.Material
       }
-      if (store.baseMaterial) materials.add(store.baseMaterial)
-      if (store.normalMaterial) materials.add(store.normalMaterial)
+      const { originalMaterial, wireMaterial, normalMaterial } = store
+      if (Array.isArray(originalMaterial)) {
+        originalMaterial.forEach((mat) => materials.add(mat))
+      } else if (originalMaterial) {
+        materials.add(originalMaterial)
+      }
+      if (wireMaterial) materials.add(wireMaterial)
+      if (normalMaterial) materials.add(normalMaterial)
       if (mesh.geometry) mesh.geometry.dispose()
-      mesh.userData.baseMaterial = undefined
+      mesh.userData.originalMaterial = undefined
+      mesh.userData.wireMaterial = undefined
       mesh.userData.normalMaterial = undefined
     }
   })
@@ -1168,6 +1182,9 @@ function frameObject(camera: THREE.PerspectiveCamera | null, controls: OrbitCont
   camera.far = distance * 100
   camera.updateProjectionMatrix()
   controls.target.copy(center)
+  controls.minDistance = Math.max(safeDim * 0.2, 0.1)
+  controls.maxDistance = Math.max(safeDim * 20, 10)
+  controls.enablePan = true
   controls.update()
 }
 
