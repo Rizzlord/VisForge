@@ -18,12 +18,10 @@ from starlette.concurrency import run_in_threadpool
 
 from .triposg_service import TripoParams, triposg_service
 from .hunyuan_service import HunyuanParams, hunyuan_service
+from .rmbg_service import rmbg_service
 from PIL import Image
-from rembg import remove, new_session
 
 logger = logging.getLogger(__name__)
-
-REMBG_SESSION = new_session()
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS_DIR = BACKEND_ROOT / "workflows"
@@ -435,10 +433,7 @@ def _parse_hex_color(value: Optional[str]) -> tuple[int, int, int]:
 
 def _process_background(request: RemoveBackgroundRequest) -> RemoveBackgroundResponse:
     pil_image = _decode_image(request.image_data_url)
-    image_bytes = io.BytesIO()
-    pil_image.save(image_bytes, format='PNG')
-    removed_bytes = remove(image_bytes.getvalue(), session=REMBG_SESSION)
-    removed_image = Image.open(io.BytesIO(removed_bytes)).convert('RGBA')
+    removed_image = rmbg_service.remove_background(pil_image)
 
     if request.transparent:
         output_image = removed_image
