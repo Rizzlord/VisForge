@@ -27,6 +27,8 @@ import {
   BackgroundRemovalControlView,
   TripoGenerationControl,
   TripoGenerationControlView,
+  DetailGen3DControl,
+  DetailGen3DControlView,
   SaveModelControl,
   SaveModelControlView,
   SaveImageControl,
@@ -189,6 +191,21 @@ class GenerateHy21TextureNode extends FoldableNode {
   }
 }
 
+class DetailGen3DNode extends FoldableNode {
+  readonly generator: DetailGen3DControl
+
+  constructor() {
+    super('Refine DetailGen3D', 'refineDetailGen3d')
+    this.addInput('model', new ClassicPreset.Input(modelSocket, 'Model'))
+    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
+    this.addOutput('model', new ClassicPreset.Output(modelSocket, 'Model'))
+    this.generator = new DetailGen3DControl(this.id)
+    this.addControl('refine', this.generator)
+    this.width = 440
+    this.height = 360
+  }
+}
+
 class RemoveBackgroundNode extends FoldableNode {
   readonly processor: BackgroundRemovalControl
 
@@ -240,6 +257,7 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   removeBackground: () => new RemoveBackgroundNode(),
   saveModel: () => new SaveModelNode(),
   saveImage: () => new SaveImageNode(),
+  refineDetailGen3d: () => new DetailGen3DNode(),
 }
 
 const DEFAULT_NODE_WIDTH = 280
@@ -282,6 +300,7 @@ const NODE_CATALOG: NodeCatalogCategory[] = [
       { kind: 'generateTripoModel', label: 'Generate Tripo Model', description: 'Create 3D geometry from a reference image.' },
       { kind: 'generateHy21Model', label: 'Generate Hy 2.1 Model', description: 'Generate geometry using the Hunyuan3D-2.1 pipeline.' },
       { kind: 'generateHy21Texture', label: 'Generate Hy 2.1 Texture', description: 'Produce PBR textures for an existing mesh.' },
+      { kind: 'refineDetailGen3d', label: 'Refine DetailGen3D', description: 'Enhance mesh detail using DetailGen3D.' },
     ],
   },
 ]
@@ -617,6 +636,10 @@ function captureNodeState(node: FoldableNode): SerializedNodeState {
     state.removeBg = node.processor.serialize()
   }
 
+  if (node instanceof DetailGen3DNode) {
+    state.detailGen3d = node.generator.serialize()
+  }
+
   return state
 }
 
@@ -658,6 +681,10 @@ function applyNodeState(node: FoldableNode, state?: SerializedNodeState) {
 
   if (node instanceof RemoveBackgroundNode && state.removeBg) {
     node.processor.applySerialized(state.removeBg)
+  }
+
+  if (node instanceof DetailGen3DNode && state.detailGen3d) {
+    node.generator.applySerialized(state.detailGen3d)
   }
 }
 
@@ -884,6 +911,10 @@ function renderControlComponent(control: ClassicPreset.Control, onGraphChange: (
     return <HunyuanTextureGenerationControlView control={control} onGraphChange={onGraphChange} />
   }
 
+  if (control instanceof DetailGen3DControl) {
+    return <DetailGen3DControlView control={control} onGraphChange={onGraphChange} />
+  }
+
   if (control instanceof BackgroundRemovalControl) {
     return <BackgroundRemovalControlView control={control} onGraphChange={onGraphChange} />
   }
@@ -1023,6 +1054,15 @@ async function evaluateNode(
     if (control?.albedo) result.albedo = control.albedo
     if (control?.rm) result.rm = control.rm
     return result
+  }
+
+  if (node instanceof DetailGen3DNode) {
+    const control = node.controls.refine as DetailGen3DControl | undefined
+    const model = inputs.model as ModelValue | undefined
+    const image = inputs.image as ImageValue | undefined
+    control?.setInputModel(model)
+    control?.setInputImage(image)
+    return control?.model ? { model: control.model } : {}
   }
 
   if (node instanceof RemoveBackgroundNode) {

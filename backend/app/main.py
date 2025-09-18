@@ -22,6 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from .triposg_service import TripoParams, triposg_service
 from .hunyuan_service import HunyuanParams, hunyuan_service
 from .hunyuan_texture_service import HunyuanTextureParams, hunyuan_texture_service
+from .detailgen_service import DetailGen3DParams, detailgen_service
 from .rmbg_service import rmbg_service, REPO_ROOT as RMBG_REPO_ROOT
 from PIL import Image
 
@@ -312,6 +313,24 @@ class TripoSGResponse(BaseModel):
     mime_type: str = "model/gltf-binary"
 
 
+class DetailGenRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_base64: str = Field(..., description="Input mesh in GLB format encoded as base64")
+    image_data_url: str = Field(..., description="Reference image as data URL")
+    seed: int = Field(42, ge=0, le=0xFFFFFFFFFFFFFFFF)
+    num_inference_steps: int = Field(50, ge=1, le=200)
+    guidance_scale: float = Field(10.0, ge=0.0, le=50.0)
+    noise_aug: float = Field(0.0, ge=0.0, le=1.0)
+    use_repo_venv: bool = Field(False, description="Run worker inside repository virtual environment if available")
+
+
+class DetailGenResponse(BaseModel):
+    glb_base64: str
+    file_name: str = "detailgen-refined.glb"
+    mime_type: str = "model/gltf-binary"
+
+
 class HunyuanRequest(BaseModel):
     image_data_url: str = Field(..., description="Image data URL (base64) to convert into a 3D model")
     seed: int = Field(1234, ge=0, le=0xFFFFFFFF)
@@ -457,6 +476,39 @@ async def triposg_generate(request: TripoSGRequest) -> TripoSGResponse:
     glb_base64 = base64.b64encode(glb_bytes).decode("utf-8")
     logger.info("TripoSG job completed (seed=%s, size=%d bytes)", request.seed, len(glb_bytes))
     return TripoSGResponse(glb_base64=glb_base64)
+
+
+@app.post("/detailgen/refine", response_model=DetailGenResponse)
+async def detailgen_refine(request: DetailGenRequest) -> DetailGenResponse:
+    logger.info(
+        "DetailGen3D job started (seed=%s, steps=%s, guidance=%s)",
+        request.seed,
+        request.num_inference_steps,
+        request.guidance_scale,
+    )
+
+    params = DetailGen3DParams(
+        seed=request.seed,
+        num_inference_steps=request.num_inference_steps,
+        guidance_scale=request.guidance_scale,
+        noise_aug=request.noise_aug,
+        use_repo_venv=request.use_repo_venv,
+    )
+
+    async with detailgen_service.lock:
+        try:
+            glb_bytes = await detailgen_service.refine(
+                request.model_base64,
+                request.image_data_url,
+                params,
+            )
+        except Exception as exc:  # pragma: no cover - runtime error surface
+            logger.exception("DetailGen3D job failed: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    glb_base64 = base64.b64encode(glb_bytes).decode("utf-8")
+    logger.info("DetailGen3D job completed (seed=%s, size=%d bytes)", request.seed, len(glb_bytes))
+    return DetailGenResponse(glb_base64=glb_base64)
 
 
 @app.post("/hunyuan/generate", response_model=HunyuanResponse)

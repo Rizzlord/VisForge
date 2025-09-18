@@ -21,6 +21,8 @@ import type {
   HunyuanTextureSerializedState,
   RemoveBgParams,
   RemoveBgSerializedState,
+  DetailGenParams,
+  DetailGenSerializedState,
   TripoParams,
   TripoSerializedState,
 } from './types'
@@ -81,6 +83,14 @@ const DEFAULT_HUNYUAN_TEXTURE_PARAMS: HunyuanTextureParams = {
   textureResolution: 2048,
   unloadModelAfterGeneration: true,
   enableSuperResolution: false,
+  useRepoVenv: false,
+}
+
+const DEFAULT_DETAILGEN_PARAMS: DetailGenParams = {
+  seed: 42,
+  numInferenceSteps: 50,
+  guidanceScale: 10,
+  noiseAug: 0,
   useRepoVenv: false,
 }
 
@@ -666,6 +676,118 @@ export class BackgroundRemovalControl extends ReactiveControl {
   }
 }
 
+export class DetailGen3DControl extends ReactiveControl {
+  params: DetailGenParams = { ...DEFAULT_DETAILGEN_PARAMS }
+  model: ModelValue | null = null
+  isGenerating = false
+  error: string | null = null
+  private inputModel: ModelValue | null = null
+  private inputImage: ImageValue | null = null
+
+  setInputModel(model: ModelValue | undefined) {
+    const next = model ?? null
+    if (this.inputModel === next) return
+    this.inputModel = next
+    this.notify()
+  }
+
+  setInputImage(image: ImageValue | undefined) {
+    const next = image ?? null
+    if (this.inputImage === next) return
+    this.inputImage = next
+    this.notify()
+  }
+
+  hasRequiredInputs(): boolean {
+    return this.inputModel !== null && this.inputImage !== null
+  }
+
+  updateParam<K extends keyof DetailGenParams>(key: K, value: DetailGenParams[K]) {
+    this.params = { ...this.params, [key]: value }
+    this.notify()
+  }
+
+  applySerialized(state?: DetailGenSerializedState) {
+    if (!state) return
+    this.params = { ...this.params, ...state.params }
+    if (state.modelBase64) {
+      const buffer = base64ToArrayBuffer(state.modelBase64)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: state.modelFileName ?? 'detailgen-refined.glb',
+        mimeType: state.modelMimeType ?? 'model/gltf-binary',
+      }
+    }
+    this.notify()
+  }
+
+  serialize(): DetailGenSerializedState {
+    const base: DetailGenSerializedState = { params: { ...this.params } }
+    if (this.model) {
+      base.modelBase64 = arrayBufferToBase64(this.model.arrayBuffer)
+      base.modelFileName = this.model.fileName
+      base.modelMimeType = this.model.mimeType
+    }
+    return base
+  }
+
+  async generate(onGraphChange: () => void) {
+    if (!this.hasRequiredInputs() || !this.inputModel || !this.inputImage) {
+      this.error = 'Connect both a model and an image before refining.'
+      this.notify()
+      return
+    }
+
+    this.isGenerating = true
+    this.error = null
+    this.model = null
+    this.notify()
+
+    try {
+      const response = await fetch(`${BACKEND_BASE}/detailgen/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_base64: arrayBufferToBase64(this.inputModel.arrayBuffer),
+          image_data_url: this.inputImage.dataUrl,
+          seed: this.params.seed,
+          num_inference_steps: this.params.numInferenceSteps,
+          guidance_scale: this.params.guidanceScale,
+          noise_aug: this.params.noiseAug,
+          use_repo_venv: this.params.useRepoVenv,
+        }),
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || 'Failed to refine model')
+      }
+
+      const payload = await response.json()
+      if (!payload.glb_base64) {
+        throw new Error('Response did not include model data')
+      }
+
+      const buffer = base64ToArrayBuffer(payload.glb_base64)
+      this.model = {
+        kind: 'model',
+        arrayBuffer: buffer,
+        fileName: payload.file_name ?? 'detailgen-refined.glb',
+        mimeType: payload.mime_type ?? 'model/gltf-binary',
+      }
+
+      this.isGenerating = false
+      this.notify()
+      onGraphChange()
+    } catch (error) {
+      this.isGenerating = false
+      this.error = error instanceof Error ? error.message : 'Unknown error'
+      this.notify()
+    }
+  }
+}
+
 export class SaveModelControl extends ReactiveControl {
   model: ModelValue | null = null
 
@@ -1212,6 +1334,69 @@ export function HunyuanTextureGenerationControlView(props: {
       {control.model && <div className="control-hint">Textured model ready: {control.model.fileName}</div>}
       {control.albedo && <div className="control-hint">Albedo ready: {control.albedo.fileName ?? 'albedo'}</div>}
       {control.rm && <div className="control-hint">Roughness/Metallic ready: {control.rm.fileName ?? 'rm'}</div>}
+    </div>
+  )
+}
+
+export function DetailGen3DControlView(props: {
+  control: DetailGen3DControl
+  onGraphChange: () => void
+}) {
+  const { control, onGraphChange } = props
+  const [, forceUpdate] = useState(0)
+
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  const params = control.params
+  const disable = control.isGenerating || !control.hasRequiredInputs()
+
+  const handleNumberChange = (key: keyof DetailGenParams, step = 1) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.type === 'number' ? Number(event.target.value) : event.target.value
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        const rounded = step === 1 ? value : Math.max(Math.min(value, Number.MAX_SAFE_INTEGER), -Number.MAX_SAFE_INTEGER)
+        control.updateParam(key, rounded as any)
+      }
+    }
+
+  const handleFloatChange = (key: keyof DetailGenParams) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = Number(event.target.value)
+      if (Number.isFinite(value)) {
+        control.updateParam(key, value as any)
+      }
+    }
+
+  return (
+    <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
+      {control.error && <div className="control-error">{control.error}</div>}
+      {!control.hasRequiredInputs() && <div className="control-hint">Connect both a model and an image before refining.</div>}
+      <div className="tripo-grid">
+        <label>
+          Seed
+          <input type="number" value={params.seed} min={0} onChange={handleNumberChange('seed')} />
+        </label>
+        <label>
+          Steps
+          <input type="number" value={params.numInferenceSteps} min={1} max={200} onChange={handleNumberChange('numInferenceSteps')} />
+        </label>
+        <label>
+          Guidance
+          <input type="number" value={params.guidanceScale} min={0} max={50} step={0.1} onChange={handleFloatChange('guidanceScale')} />
+        </label>
+        <label>
+          Noise Augmentation
+          <input type="number" value={params.noiseAug} min={0} max={1} step={0.01} onChange={handleFloatChange('noiseAug')} />
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={params.useRepoVenv} onChange={(event) => control.updateParam('useRepoVenv', event.target.checked)} />
+          Use repo virtual environment
+        </label>
+      </div>
+      <button type="button" onClick={() => void control.generate(onGraphChange)} disabled={disable}>
+        {control.isGenerating ? 'Refining…' : 'Refine Detail'}
+      </button>
+      {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}
     </div>
   )
 }

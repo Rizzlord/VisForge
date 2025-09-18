@@ -44,6 +44,7 @@ export type NodeKind =
   | 'removeBackground'
   | 'saveModel'
   | 'saveImage'
+  | 'refineDetailGen3d'
 
 export interface NodeCatalogEntry {
   kind: NodeKind
@@ -69,6 +70,7 @@ export interface SerializedNodeState {
   hunyuan?: HunyuanSerializedState
   hunyuanTexture?: HunyuanTextureSerializedState
   removeBg?: RemoveBgSerializedState
+  detailGen3d?: DetailGenSerializedState
 }
 
 export interface SerializedNode {
@@ -180,4 +182,19 @@ export interface RemoveBgSerializedState {
   fileName?: string
   width?: number
   height?: number
+}
+
+export interface DetailGenParams {
+  seed: number
+  numInferenceSteps: number
+  guidanceScale: number
+  noiseAug: number
+  useRepoVenv: boolean
+}
+
+export interface DetailGenSerializedState {
+  params: DetailGenParams
+  modelBase64?: string
+  modelMimeType?: string
+  modelFileName?: string
 }
