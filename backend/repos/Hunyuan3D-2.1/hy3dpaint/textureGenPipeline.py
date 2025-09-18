@@ -58,19 +58,16 @@ class Hunyuan3DPaintConfig:
         self.merge_method = "fast"
         self.enable_super_resolution = enable_super_resolution
 
-        # view selection
-        self.candidate_camera_azims = [0, 90, 180, 270, 0, 180]
-        self.candidate_camera_elevs = [0, 0, 0, 0, 90, -90]
-        self.candidate_view_weights = [1, 0.1, 0.5, 0.1, 0.05, 0.05]
-
-        for azim in range(0, 360, 30):
-            self.candidate_camera_azims.append(azim)
-            self.candidate_camera_elevs.append(20)
-            self.candidate_view_weights.append(0.01)
-
-            self.candidate_camera_azims.append(azim)
-            self.candidate_camera_elevs.append(-20)
-            self.candidate_view_weights.append(0.01)
+        if max_num_view >= 8:
+            self.candidate_camera_azims = [0, 60, 120, 180, 240, 300, 0, 180]
+            self.candidate_camera_elevs = [0, 0, 0, 0, 0, 0, 90, -90]
+            self.candidate_view_weights = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.05, 0.05]
+            self.ortho_scale = 1.20
+        else:
+            self.candidate_camera_azims = [0, 90, 180, 270, 0, 180]
+            self.candidate_camera_elevs = [0, 0, 0, 0, 90, -90]
+            self.candidate_view_weights = [1.0, 1.0, 1.0, 1.0, 0.05, 0.05]
+            self.ortho_scale = 1.0
 
 
 class Hunyuan3DPaintPipeline:
@@ -86,6 +83,9 @@ class Hunyuan3DPaintPipeline:
             bake_mode=self.config.bake_mode,
             raster_mode=self.config.raster_mode,
         )
+        ortho_scale = getattr(self.config, "ortho_scale", None)
+        if ortho_scale is not None and hasattr(self.render, "set_orth_scale"):
+            self.render.set_orth_scale(ortho_scale)
         self.view_processor = ViewProcessor(self.config, self.render)
 
     def load_models(self):

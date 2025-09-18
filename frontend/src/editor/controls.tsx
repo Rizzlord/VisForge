@@ -62,6 +62,8 @@ const DEFAULT_REMOVE_BG_PARAMS: RemoveBgParams = {
   unloadModel: true,
 }
 
+const HUNYUAN_VIEW_COUNT_OPTIONS = [6, 8] as const
+
 const DEFAULT_HUNYUAN_TEXTURE_PARAMS: HunyuanTextureParams = {
   seed: 1234,
   randomizeSeed: true,
@@ -405,6 +407,10 @@ export class HunyuanTextureGenerationControl extends ReactiveControl {
   applySerialized(state?: HunyuanTextureSerializedState) {
     if (!state) return
     this.params = { ...DEFAULT_HUNYUAN_TEXTURE_PARAMS, ...state.params }
+
+    if (!HUNYUAN_VIEW_COUNT_OPTIONS.some((value) => value === this.params.maxViewCount)) {
+      this.params.maxViewCount = DEFAULT_HUNYUAN_TEXTURE_PARAMS.maxViewCount
+    }
 
     if (state.modelBase64 && state.modelMimeType && state.modelFileName) {
       const buffer = base64ToArrayBuffer(state.modelBase64)
@@ -1066,13 +1072,16 @@ export function HunyuanTextureGenerationControlView(props: {
         </label>
         <label>
           View Count
-          <input
-            type="number"
+          <select
             value={params.maxViewCount}
-            min={3}
-            max={24}
-            onChange={handleNumberChange('maxViewCount')}
-          />
+            onChange={(event) => control.updateParam('maxViewCount', Number(event.target.value))}
+          >
+            {[6, 8].map((value) => (
+              <option key={value} value={value}>
+                {value} views
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Steps

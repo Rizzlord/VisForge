@@ -351,7 +351,11 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    config = Hunyuan3DPaintConfig(max_num_view=params.max_view_count, resolution=params.view_resolution)
+    config = Hunyuan3DPaintConfig(
+        max_num_view=params.max_view_count,
+        resolution=params.view_resolution,
+        enable_super_resolution=params.enable_super_resolution,
+    )
     config.target_face_count = params.target_face_count
     config.device = device.type
     config.render_size = params.texture_resolution
@@ -359,7 +363,6 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     config.multiview_cfg_path = str(repo_root / "hy3dpaint" / "cfgs" / "hunyuan-paint-pbr.yaml")
     config.custom_pipeline = "hunyuanpaintpbr"
     config.realesrgan_ckpt_path = str(realesrgan_path)
-    config.enable_super_resolution = params.enable_super_resolution
 
     logger.info(
         "Initialising paint pipeline (views=%d, resolution=%d, steps=%d, guidance=%.2f, target_faces=%d, decimate=%s, uv_unwrap=%s)",

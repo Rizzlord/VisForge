@@ -324,7 +324,7 @@ class HunyuanTextureRequest(BaseModel):
     image_data_url: str = Field(..., description="Reference image data URL (base64)")
     seed: int = Field(1234, ge=0, le=0xFFFFFFFF)
     randomize_seed: bool = Field(True, description="Randomize seed before texture generation")
-    max_view_count: int = Field(6, ge=3, le=24)
+    max_view_count: Literal[6, 8] = Field(6, description="Number of multi-view renders to generate")
     view_resolution: int = Field(512, ge=256, le=1024)
     num_inference_steps: int = Field(15, ge=1, le=200)
     guidance_scale: float = Field(3.0, ge=0.0, le=20.0)
