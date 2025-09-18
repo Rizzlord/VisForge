@@ -15,6 +15,7 @@
 import os
 import torch
 import copy
+import gc
 import trimesh
 import numpy as np
 from PIL import Image
@@ -75,7 +76,8 @@ class Hunyuan3DPaintPipeline:
 
     def __init__(self, config=None) -> None:
         self.config = config if config is not None else Hunyuan3DPaintConfig()
-        self.models = {}
+        self.model = None
+        self.super_model = None
         self.stats_logs = {}
         self.render = MeshRender(
             default_resolution=self.config.render_size,
@@ -84,13 +86,19 @@ class Hunyuan3DPaintPipeline:
             raster_mode=self.config.raster_mode,
         )
         self.view_processor = ViewProcessor(self.config, self.render)
-        self.load_models()
 
     def load_models(self):
-        torch.cuda.empty_cache()
-        self.models["super_model"] = imageSuperNet(self.config)
-        self.models["multiview_model"] = multiviewDiffusionNet(self.config)
-        print("Models Loaded.")
+        self._ensure_multiview_model()
+        self._ensure_super_model()
+
+    def _ensure_multiview_model(self) -> None:
+        if self.model is None:
+            torch.cuda.empty_cache()
+            self.model = multiviewDiffusionNet(self.config)
+
+    def _ensure_super_model(self) -> None:
+        if self.super_model is None:
+            self.super_model = imageSuperNet(self.config)
 
     @torch.no_grad()
     def __call__(
@@ -178,12 +186,16 @@ class Hunyuan3DPaintPipeline:
 
         ###########  Multiview  ##########
         logger.info("HyPaint running multiview diffusion ...")
-        multiviews_pbr = self.models["multiview_model"](
+        self._ensure_multiview_model()
+        multiviews_pbr = self.model(
             image_style,
             normal_maps + position_maps,
             prompt=image_caption,
             custom_view_size=self.config.resolution,
             resize_input=True,
+            num_steps=getattr(self.config, "num_inference_steps", 10),
+            guidance_scale=getattr(self.config, "guidance_scale", 3.0),
+            seed=getattr(self.config, "seed", 0),
         )
         logger.info("HyPaint multiview diffusion completed")
         ###########  Enhance  ##########
@@ -191,9 +203,10 @@ class Hunyuan3DPaintPipeline:
         enhance_images["albedo"] = copy.deepcopy(multiviews_pbr["albedo"])
         enhance_images["mr"] = copy.deepcopy(multiviews_pbr["mr"])
 
+        self._ensure_super_model()
         for i in range(len(enhance_images["albedo"])):
-            enhance_images["albedo"][i] = self.models["super_model"](enhance_images["albedo"][i])
-            enhance_images["mr"][i] = self.models["super_model"](enhance_images["mr"][i])
+            enhance_images["albedo"][i] = self.super_model(enhance_images["albedo"][i])
+            enhance_images["mr"][i] = self.super_model(enhance_images["mr"][i])
         logger.info("HyPaint super-resolution enhancement finished")
 
         ###########  Bake  ##########
@@ -227,3 +240,54 @@ class Hunyuan3DPaintPipeline:
             logger.info("HyPaint converted OBJ to GLB: %s", output_glb_path)
 
         return output_mesh_path
+
+    def set_texture_albedo(self, texture):
+        self.render.set_texture(texture, force_set=True)
+
+    def set_texture_mr(self, texture_mr):
+        self.render.set_texture_mr(texture_mr)
+
+    def save_mesh(self, output_mesh_path):
+        self.render.save_mesh(output_mesh_path, downsample=False)
+        output_glb_path = output_mesh_path.replace(".obj", ".glb")
+        convert_obj_to_glb(output_mesh_path, output_glb_path)
+        return output_glb_path
+
+    def inpaint(self, albedo, albedo_mask, mr, mr_mask, vertex_inpaint, method):
+        mask_np = (albedo_mask.squeeze(-1).cpu().numpy() * 255).astype(np.uint8)
+        texture = self.view_processor.texture_inpaint(albedo, mask_np, vertex_inpaint, method)
+
+        mask_mr_np = (mr_mask.squeeze(-1).cpu().numpy() * 255).astype(np.uint8)
+        texture_mr = self.view_processor.texture_inpaint(mr, mask_mr_np, vertex_inpaint, method)
+
+        return texture, texture_mr
+
+    def bake_from_multiview(self, albedo, mr, selected_camera_elevs, selected_camera_azims, selected_view_weights):
+        texture, mask = self.view_processor.bake_from_multiview(
+            albedo, selected_camera_elevs, selected_camera_azims, selected_view_weights
+        )
+        mask_np = (mask.squeeze(-1).cpu().numpy() * 255).astype(np.uint8)
+        texture_mr, mask_mr = self.view_processor.bake_from_multiview(
+            mr, selected_camera_elevs, selected_camera_azims, selected_view_weights
+        )
+        mask_mr_np = (mask_mr.squeeze(-1).cpu().numpy() * 255).astype(np.uint8)
+
+        return texture, mask, texture_mr, mask_mr
+
+    def clean_memory(self):
+        if hasattr(self, "render"):
+            del self.render
+        if hasattr(self, "view_processor"):
+            del self.view_processor
+        if self.model is not None:
+            del self.model
+            self.model = None
+        if self.super_model is not None:
+            del self.super_model
+            self.super_model = None
+
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    def load_mesh(self, mesh):
+        self.render.load_mesh(mesh=mesh)

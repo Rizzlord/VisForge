@@ -217,12 +217,21 @@ def patch_multiview_model(model: Any) -> None:
 
     original_forward_one = model.forward_one
 
-    def forward_one_patched(input_images, control_images, prompt=None, custom_view_size=None, resize_input=False):
+    def forward_one_patched(
+        input_images,
+        control_images,
+        prompt=None,
+        custom_view_size=None,
+        resize_input=False,
+        num_steps=10,
+        guidance_scale=3.0,
+        seed=0,
+    ):
         params = getattr(model, "_hy_params", None)
-        seed = getattr(params, "seed", 0)
+        effective_seed = getattr(params, "seed", seed)
         view_size = custom_view_size or getattr(params, "view_resolution", model.pipeline.view_size)
 
-        model.seed_everything(seed)
+        model.seed_everything(effective_seed)
 
         if not isinstance(input_images, list):
             input_images_local = [input_images]
@@ -241,7 +250,8 @@ def patch_multiview_model(model: Any) -> None:
                 ctrl_resized = ctrl_resized.point(lambda x: 255 if x > 1 else 0, mode="1")
             processed_controls.append(ctrl_resized)
 
-        generator = torch.Generator(device=model.pipeline.device).manual_seed(seed)
+        generator_device = model.device if torch.cuda.is_available() else "cpu"
+        generator = torch.Generator(device=generator_device).manual_seed(int(effective_seed))
         kwargs = dict(generator=generator)
 
         num_view = len(processed_controls) // 2
@@ -258,17 +268,8 @@ def patch_multiview_model(model: Any) -> None:
             dino_hidden_states = model.dino_v2(resized_inputs[0])
             kwargs["dino_hidden_states"] = dino_hidden_states
 
-        infer_steps = getattr(params, "num_inference_steps", None)
-        guidance = getattr(params, "guidance_scale", 3.0)
-
-        if infer_steps is None:
-            infer_steps_dict = {
-                "EulerAncestralDiscreteScheduler": 30,
-                "UniPCMultistepScheduler": 15,
-                "DDIMScheduler": 50,
-                "ShiftSNRScheduler": 15,
-            }
-            infer_steps = infer_steps_dict.get(model.pipeline.scheduler.__class__.__name__, 30)
+        infer_steps = getattr(params, "num_inference_steps", num_steps)
+        guidance = getattr(params, "guidance_scale", guidance_scale)
 
         images = model.pipeline(
             resized_inputs[0:1],
@@ -290,7 +291,10 @@ def patch_multiview_model(model: Any) -> None:
 
 
 def configure_multiview_model(pipeline: Any, params: TextureWorkerParams) -> None:
-    multiview_model = pipeline.models.get("multiview_model")
+    if hasattr(pipeline, "_ensure_multiview_model"):
+        pipeline._ensure_multiview_model()
+
+    multiview_model = getattr(pipeline, "model", None)
     if multiview_model is None:
         raise RuntimeError("Failed to initialize multiview diffusion model")
 
@@ -303,6 +307,11 @@ def configure_multiview_model(pipeline: Any, params: TextureWorkerParams) -> Non
     multiview_model.seed_everything = seed_everything  # type: ignore
     multiview_model._hy_params = params
     patch_multiview_model(multiview_model)
+
+    # Pass commonly tuned parameters through to the config so the pipeline can reuse them.
+    setattr(pipeline.config, "num_inference_steps", params.num_inference_steps)
+    setattr(pipeline.config, "guidance_scale", params.guidance_scale)
+    setattr(pipeline.config, "seed", params.seed)
 
 
 def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
@@ -433,6 +442,11 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         glb_bytes = textured_glb_path.read_bytes()
         albedo_base64, albedo_width, albedo_height = image_to_base64(albedo_path)
         mr_base64, mr_width, mr_height = image_to_base64(mr_combined_path)
+
+    try:
+        paint_pipeline.clean_memory()
+    except AttributeError:
+        pass
 
     if params.unload_model_after_generation:
         del paint_pipeline

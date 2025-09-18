@@ -16,12 +16,15 @@ import os
 import torch
 import random
 import numpy as np
-from PIL import Image
 from typing import List
 import huggingface_hub
 from omegaconf import OmegaConf
-from diffusers import DiffusionPipeline
-from diffusers import EulerAncestralDiscreteScheduler, DDIMScheduler, UniPCMultistepScheduler
+from diffusers import EulerAncestralDiscreteScheduler
+
+try:
+    from ..hunyuanpaintpbr.pipeline import HunyuanPaintPipeline
+except ImportError:  # fallback when module is loaded as top-level "utils"
+    from hunyuanpaintpbr.pipeline import HunyuanPaintPipeline
 
 
 class multiviewDiffusionNet:
@@ -29,7 +32,6 @@ class multiviewDiffusionNet:
         self.device = config.device
 
         cfg_path = config.multiview_cfg_path
-        custom_pipeline = os.path.join(os.path.dirname(__file__),"..","hunyuanpaintpbr")
         cfg = OmegaConf.load(cfg_path)
         self.cfg = cfg
         self.mode = self.cfg.model.params.stable_diffusion_config.custom_pipeline[2:]
@@ -40,20 +42,26 @@ class multiviewDiffusionNet:
         )
 
         model_path = os.path.join(model_path, "hunyuan3d-paintpbr-v2-1")
-        pipeline = DiffusionPipeline.from_pretrained(
+
+        pipeline = HunyuanPaintPipeline.from_pretrained(
             model_path,
-            custom_pipeline=custom_pipeline, 
-            torch_dtype=torch.float16
+            torch_dtype=torch.float16,
         )
 
-        pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config, timestep_spacing="trailing")
+        pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
+            pipeline.scheduler.config, timestep_spacing="trailing"
+        )
         pipeline.set_progress_bar_config(disable=True)
         pipeline.eval()
         setattr(pipeline, "view_size", cfg.model.params.get("view_size", 320))
+        pipeline.enable_model_cpu_offload()
+        pipeline.enable_vae_slicing()
+        pipeline.enable_vae_tiling()
         self.pipeline = pipeline.to(self.device)
 
         if hasattr(self.pipeline.unet, "use_dino") and self.pipeline.unet.use_dino:
             from hunyuanpaintpbr.unet.modules import Dino_v2
+
             self.dino_v2 = Dino_v2(config.dino_ckpt_path).to(torch.float16)
             self.dino_v2 = self.dino_v2.to(self.device)
 
@@ -64,14 +72,41 @@ class multiviewDiffusionNet:
         os.environ["PL_GLOBAL_SEED"] = str(seed)
 
     @torch.no_grad()
-    def __call__(self, images, conditions, prompt=None, custom_view_size=None, resize_input=False):
+    def __call__(
+        self,
+        images,
+        conditions,
+        prompt=None,
+        custom_view_size=None,
+        resize_input=False,
+        num_steps=10,
+        guidance_scale=3.0,
+        seed=0,
+    ):
         pils = self.forward_one(
-            images, conditions, prompt=prompt, custom_view_size=custom_view_size, resize_input=resize_input
+            images,
+            conditions,
+            prompt=prompt,
+            custom_view_size=custom_view_size,
+            resize_input=resize_input,
+            num_steps=num_steps,
+            guidance_scale=guidance_scale,
+            seed=seed,
         )
         return pils
 
-    def forward_one(self, input_images, control_images, prompt=None, custom_view_size=None, resize_input=False):
-        self.seed_everything(0)
+    def forward_one(
+        self,
+        input_images,
+        control_images,
+        prompt=None,
+        custom_view_size=None,
+        resize_input=False,
+        num_steps=10,
+        guidance_scale=3.0,
+        seed=0,
+    ):
+        self.seed_everything(seed)
         custom_view_size = custom_view_size if custom_view_size is not None else self.pipeline.view_size
         if not isinstance(input_images, List):
             input_images = [input_images]
@@ -85,7 +120,8 @@ class multiviewDiffusionNet:
             control_images[i] = control_images[i].resize((custom_view_size, custom_view_size))
             if control_images[i].mode == "L":
                 control_images[i] = control_images[i].point(lambda x: 255 if x > 1 else 0, mode="1")
-        kwargs = dict(generator=torch.Generator(device=self.pipeline.device).manual_seed(0))
+        generator_device = self.device if torch.cuda.is_available() else "cpu"
+        kwargs = dict(generator=torch.Generator(device=generator_device).manual_seed(seed))
 
         num_view = len(control_images) // 2
         normal_image = [[control_images[i] for i in range(num_view)]]
@@ -103,19 +139,12 @@ class multiviewDiffusionNet:
 
         sync_condition = None
 
-        infer_steps_dict = {
-            "EulerAncestralDiscreteScheduler": 30,
-            "UniPCMultistepScheduler": 15,
-            "DDIMScheduler": 50,
-            "ShiftSNRScheduler": 15,
-        }
-
         mvd_image = self.pipeline(
             input_images[0:1],
-            num_inference_steps=infer_steps_dict[self.pipeline.scheduler.__class__.__name__],
+            num_inference_steps=num_steps,
             prompt=prompt,
             sync_condition=sync_condition,
-            guidance_scale=3.0,
+            guidance_scale=guidance_scale,
             **kwargs,
         ).images
 
