@@ -30,6 +30,7 @@ class HunyuanTextureParams:
     remesh_mesh: bool
     decimate: bool
     uv_unwrap: bool
+    texture_resolution: int
     unload_model_after_generation: bool
 
 

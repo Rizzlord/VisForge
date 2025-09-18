@@ -38,6 +38,7 @@ class TextureWorkerParams:
     remesh_mesh: bool
     decimate: bool
     uv_unwrap: bool
+    texture_resolution: int
     unload_model_after_generation: bool
 
 
@@ -288,6 +289,22 @@ def patch_multiview_model(model: Any) -> None:
     model._vf_patched = True
 
 
+def configure_multiview_model(pipeline: Any, params: TextureWorkerParams) -> None:
+    multiview_model = pipeline.models.get("multiview_model")
+    if multiview_model is None:
+        raise RuntimeError("Failed to initialize multiview diffusion model")
+
+    def seed_everything(seed: int) -> None:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        os.environ["PL_GLOBAL_SEED"] = str(seed)
+
+    multiview_model.seed_everything = seed_everything  # type: ignore
+    multiview_model._hy_params = params
+    patch_multiview_model(multiview_model)
+
+
 def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     weights_root = Path(payload["weights_root"])
     repo_root = Path(payload["repo_root"])
@@ -313,6 +330,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         remesh_mesh=bool(payload["remesh_mesh"]),
         decimate=bool(payload.get("decimate", True)),
         uv_unwrap=bool(payload.get("uv_unwrap", True)),
+        texture_resolution=int(payload.get("texture_resolution", 2048)),
         unload_model_after_generation=bool(payload["unload_model_after_generation"]),
     )
 
@@ -325,6 +343,8 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     config = Hunyuan3DPaintConfig(max_num_view=params.max_view_count, resolution=params.view_resolution)
     config.target_face_count = params.target_face_count
     config.device = device.type
+    config.render_size = params.texture_resolution
+    config.texture_size = params.texture_resolution * 2
     config.multiview_cfg_path = str(repo_root / "hy3dpaint" / "cfgs" / "hunyuan-paint-pbr.yaml")
     config.custom_pipeline = "hunyuanpaintpbr"
     config.realesrgan_ckpt_path = str(realesrgan_path)
@@ -342,21 +362,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
 
     paint_pipeline = Hunyuan3DPaintPipeline(config)
     params.seed = final_seed
-
-    multiview_model = paint_pipeline.models.get("multiview_model")
-    if multiview_model is None:
-        raise RuntimeError("Failed to initialize multiview diffusion model")
-
-    multiview_model._hy_params = params
-    def seed_everything(seed: int) -> None:
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        os.environ["PL_GLOBAL_SEED"] = str(seed)
-
-    multiview_model.seed_everything = seed_everything  # type: ignore
-    patch_multiview_model(multiview_model)
-    multiview_model._hy_params = params
+    configure_multiview_model(paint_pipeline, params)
 
     with tempfile.TemporaryDirectory() as tmpdir_str:
         tmpdir = Path(tmpdir_str)
@@ -368,20 +374,33 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
 
         output_obj_path = tmpdir / "textured_mesh.obj"
         logger.info(
-            "Running paint pipeline (remesh=%s, target_faces=%d) ...",
+            "Running paint pipeline (remesh=%s, target_faces=%d, decimate=%s, uv_unwrap=%s, view_res=%d, views=%d, steps=%d) ...",
             params.remesh_mesh,
             params.target_face_count,
+            params.decimate,
+            params.uv_unwrap,
+            params.view_resolution,
+            params.max_view_count,
+            params.num_inference_steps,
         )
-        paint_pipeline(
-            mesh_path=str(obj_path),
-            image_path=reference_image,
-            output_mesh_path=str(output_obj_path),
-            use_remesh=params.remesh_mesh,
-            decimate=params.decimate,
-            uv_unwrap=params.uv_unwrap,
-            save_glb=False,
-            target_face_count=params.target_face_count,
-        )
+
+        try:
+            paint_pipeline(
+                mesh_path=str(obj_path),
+                image_path=reference_image,
+                output_mesh_path=str(output_obj_path),
+                use_remesh=params.remesh_mesh,
+                decimate=params.decimate,
+                uv_unwrap=params.uv_unwrap,
+                save_glb=False,
+                target_face_count=params.target_face_count,
+            )
+        except torch.cuda.OutOfMemoryError as exc:
+            logger.error(
+                "Paint pipeline out-of-memory. Consider lowering view resolution, view count, or target face count. %s",
+                exc,
+            )
+            raise
         logger.info("Paint pipeline completed, textured OBJ at %s", output_obj_path)
 
         base_path = output_obj_path.with_suffix("")

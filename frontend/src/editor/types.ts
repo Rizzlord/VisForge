@@ -147,6 +147,7 @@ export interface HunyuanTextureParams {
   remeshMesh: boolean
   decimate: boolean
   uvUnwrap: boolean
+  textureResolution: number
   unloadModelAfterGeneration: boolean
 }
 

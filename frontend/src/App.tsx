@@ -104,6 +104,32 @@ function normaliseSerializedWorkflow(raw: unknown): SerializedWorkflow | null {
   return { nodes, connections }
 }
 
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^a-z0-9-_]+/gi, '_') || 'workflow'
+}
+
+function exportWorkflowPayload(workflow: WorkflowTab) {
+  return {
+    name: workflow.name,
+    data: workflow.data,
+  }
+}
+
+function downloadWorkflow(workflow: WorkflowTab) {
+  try {
+    const payload = JSON.stringify(exportWorkflowPayload(workflow), null, 2)
+    const blob = new Blob([payload], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${sanitizeFileName(workflow.name)}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Failed to download workflow', error)
+  }
+}
+
 function App() {
   const [editorSetup, setEditorSetup] = useState<EditorSetup | null>(null)
   const [workflows, setWorkflows] = useState<WorkflowTab[]>([])
@@ -292,6 +318,7 @@ function App() {
     setWorkflows(nextWorkflows)
     setActiveWorkflowId(newWorkflow.id)
     await persistState(nextWorkflows, newWorkflow.id)
+    downloadWorkflow(newWorkflow)
   }, [editorSetup, workflows, persistState, isBootstrapping])
 
   const handleNewWorkflow = useCallback(async () => {

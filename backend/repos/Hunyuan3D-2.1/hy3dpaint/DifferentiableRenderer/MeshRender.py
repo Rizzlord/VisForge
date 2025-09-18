@@ -30,13 +30,82 @@ from .camera_utils import (
 
 try:
     from .mesh_utils import load_mesh, save_mesh
-except:
+except Exception:
     print("Bpy IO CAN NOT BE Imported!!!")
 
 try:
     from .mesh_inpaint_processor import meshVerticeInpaint  # , meshVerticeColor
-except:
+except Exception:
     print("InPaint Function CAN NOT BE Imported!!!")
+
+    def meshVerticeInpaint(texture, mask, vtx_pos, vtx_uv, pos_idx, uv_idx, method="smooth"):
+        import numpy as _np
+
+        texture_np = _np.asarray(texture, dtype=_np.float32)
+        mask_np = _np.asarray(mask, dtype=_np.uint8)
+        vtx_pos_np = _np.asarray(vtx_pos, dtype=_np.float32)
+        vtx_uv_np = _np.asarray(vtx_uv, dtype=_np.float32)
+        pos_idx_np = _np.asarray(pos_idx, dtype=_np.int32)
+        uv_idx_np = _np.asarray(uv_idx, dtype=_np.int32)
+
+        h, w, c = texture_np.shape
+        vtx_colors = _np.zeros((vtx_pos_np.shape[0], c), dtype=_np.float32)
+        colored = _np.zeros(vtx_pos_np.shape[0], dtype=_np.bool_)
+
+        def uv_to_pixel(uv_index: int) -> tuple[int, int]:
+            u = int(round((1.0 - vtx_uv_np[uv_index, 1]) * (h - 1)))
+            v = int(round(vtx_uv_np[uv_index, 0] * (w - 1)))
+            return max(0, min(h - 1, u)), max(0, min(w - 1, v))
+
+        for face in range(pos_idx_np.shape[0]):
+            for k in range(3):
+                uv_idx = uv_idx_np[face, k]
+                v_idx = pos_idx_np[face, k]
+                u, v = uv_to_pixel(uv_idx)
+                if mask_np[u, v] > 0:
+                    colored[v_idx] = True
+                    vtx_colors[v_idx] = texture_np[u, v]
+
+        adjacency = [[] for _ in range(vtx_pos_np.shape[0])]
+        for face in pos_idx_np:
+            for i in range(3):
+                a = int(face[i])
+                b = int(face[(i + 1) % 3])
+                if b not in adjacency[a]:
+                    adjacency[a].append(b)
+                if a not in adjacency[b]:
+                    adjacency[b].append(a)
+
+        uncolored = _np.where(~colored)[0]
+        for _ in range(6):
+            changed = False
+            newly_colored = []
+            for idx in uncolored:
+                neighbors = [n for n in adjacency[idx] if colored[n]]
+                if not neighbors:
+                    continue
+                vtx_colors[idx] = _np.mean(vtx_colors[neighbors], axis=0)
+                newly_colored.append(idx)
+                changed = True
+            if not changed:
+                break
+            colored[newly_colored] = True
+            uncolored = _np.where(~colored)[0]
+
+        new_texture = texture_np.copy()
+        new_mask = mask_np.copy()
+
+        for face in range(pos_idx_np.shape[0]):
+            for k in range(3):
+                uv_idx = uv_idx_np[face, k]
+                v_idx = pos_idx_np[face, k]
+                if not colored[v_idx]:
+                    continue
+                u, v = uv_to_pixel(uv_idx)
+                new_texture[u, v] = vtx_colors[v_idx]
+                new_mask[u, v] = 255
+
+        return new_texture, new_mask
 
 
 class RenderMode(Enum):

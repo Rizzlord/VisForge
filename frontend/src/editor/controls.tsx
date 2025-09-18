@@ -73,6 +73,7 @@ const DEFAULT_HUNYUAN_TEXTURE_PARAMS: HunyuanTextureParams = {
   remeshMesh: true,
   decimate: true,
   uvUnwrap: true,
+  textureResolution: 2048,
   unloadModelAfterGeneration: true,
 }
 
@@ -479,6 +480,7 @@ export class HunyuanTextureGenerationControl extends ReactiveControl {
           view_resolution: this.params.viewResolution,
           num_inference_steps: this.params.numInferenceSteps,
           target_face_count: this.params.targetFaceCount,
+          texture_resolution: this.params.textureResolution,
           guidance_scale: this.params.guidanceScale,
           decimate: this.params.decimate,
           uv_unwrap: this.params.uvUnwrap,
@@ -1053,7 +1055,7 @@ export function HunyuanTextureGenerationControlView(props: {
             value={params.viewResolution}
             onChange={(event) => control.updateParam('viewResolution', Number(event.target.value))}
           >
-            {[512, 768, 1024].map((value) => (
+            {[256, 384, 512, 768, 1024].map((value) => (
               <option key={value} value={value}>
                 {value}px
               </option>
@@ -1089,6 +1091,19 @@ export function HunyuanTextureGenerationControlView(props: {
             step={1000}
             onChange={handleNumberChange('targetFaceCount')}
           />
+        </label>
+        <label>
+          Texture Resolution
+          <select
+            value={params.textureResolution}
+            onChange={(event) => control.updateParam('textureResolution', Number(event.target.value))}
+          >
+            {[1024, 2048, 4096].map((value) => (
+              <option key={value} value={value}>
+                {value}px
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Guidance
