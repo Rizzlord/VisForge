@@ -40,6 +40,7 @@ class TextureWorkerParams:
     uv_unwrap: bool
     texture_resolution: int
     unload_model_after_generation: bool
+    enable_super_resolution: bool
 
 
 def ensure_paths(paths: list[str]) -> None:
@@ -341,6 +342,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         uv_unwrap=bool(payload.get("uv_unwrap", True)),
         texture_resolution=int(payload.get("texture_resolution", 2048)),
         unload_model_after_generation=bool(payload["unload_model_after_generation"]),
+        enable_super_resolution=bool(payload.get("enable_super_resolution", False)),
     )
 
     final_seed = params.seed
@@ -353,10 +355,11 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     config.target_face_count = params.target_face_count
     config.device = device.type
     config.render_size = params.texture_resolution
-    config.texture_size = params.texture_resolution * 2
+    config.texture_size = params.texture_resolution
     config.multiview_cfg_path = str(repo_root / "hy3dpaint" / "cfgs" / "hunyuan-paint-pbr.yaml")
     config.custom_pipeline = "hunyuanpaintpbr"
     config.realesrgan_ckpt_path = str(realesrgan_path)
+    config.enable_super_resolution = params.enable_super_resolution
 
     logger.info(
         "Initialising paint pipeline (views=%d, resolution=%d, steps=%d, guidance=%.2f, target_faces=%d, decimate=%s, uv_unwrap=%s)",

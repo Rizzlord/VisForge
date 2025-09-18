@@ -75,6 +75,7 @@ const DEFAULT_HUNYUAN_TEXTURE_PARAMS: HunyuanTextureParams = {
   uvUnwrap: true,
   textureResolution: 2048,
   unloadModelAfterGeneration: true,
+  enableSuperResolution: false,
 }
 
 export class ReactiveControl extends ClassicPreset.Control {
@@ -485,6 +486,7 @@ export class HunyuanTextureGenerationControl extends ReactiveControl {
           decimate: this.params.decimate,
           uv_unwrap: this.params.uvUnwrap,
           remesh_mesh: this.params.remeshMesh,
+          enable_super_resolution: this.params.enableSuperResolution,
           unload_model_after_generation: this.params.unloadModelAfterGeneration,
         }),
       })
@@ -1144,6 +1146,14 @@ export function HunyuanTextureGenerationControlView(props: {
             onChange={(event) => control.updateParam('uvUnwrap', event.target.checked)}
           />
           UV unwrap mesh
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.enableSuperResolution}
+            onChange={(event) => control.updateParam('enableSuperResolution', event.target.checked)}
+          />
+          Run super-resolution pass (higher VRAM)
         </label>
         <label className="checkbox">
           <input

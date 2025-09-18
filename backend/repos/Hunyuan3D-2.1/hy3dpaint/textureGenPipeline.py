@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 class Hunyuan3DPaintConfig:
-    def __init__(self, max_num_view, resolution):
+    def __init__(self, max_num_view, resolution, enable_super_resolution=True):
         self.device = "cuda"
 
         self.multiview_cfg_path = "hy3dpaint/cfgs/hunyuan-paint-pbr.yaml"
@@ -56,6 +56,7 @@ class Hunyuan3DPaintConfig:
         self.resolution = resolution
         self.bake_exp = 4
         self.merge_method = "fast"
+        self.enable_super_resolution = enable_super_resolution
 
         # view selection
         self.candidate_camera_azims = [0, 90, 180, 270, 0, 180]
@@ -97,6 +98,8 @@ class Hunyuan3DPaintPipeline:
             self.model = multiviewDiffusionNet(self.config)
 
     def _ensure_super_model(self) -> None:
+        if not getattr(self.config, "enable_super_resolution", True):
+            return
         if self.super_model is None:
             self.super_model = imageSuperNet(self.config)
 
@@ -203,11 +206,20 @@ class Hunyuan3DPaintPipeline:
         enhance_images["albedo"] = copy.deepcopy(multiviews_pbr["albedo"])
         enhance_images["mr"] = copy.deepcopy(multiviews_pbr["mr"])
 
-        self._ensure_super_model()
-        for i in range(len(enhance_images["albedo"])):
-            enhance_images["albedo"][i] = self.super_model(enhance_images["albedo"][i])
-            enhance_images["mr"][i] = self.super_model(enhance_images["mr"][i])
-        logger.info("HyPaint super-resolution enhancement finished")
+        if getattr(self.config, "enable_super_resolution", True):
+            self._ensure_super_model()
+            for i in range(len(enhance_images["albedo"])):
+                enhance_images["albedo"][i] = self.super_model(enhance_images["albedo"][i])
+                enhance_images["mr"][i] = self.super_model(enhance_images["mr"][i])
+            logger.info("HyPaint super-resolution enhancement finished")
+            # Release the upscaler immediately to free memory for subsequent steps.
+            if self.super_model is not None:
+                del self.super_model
+                self.super_model = None
+                gc.collect()
+                torch.cuda.empty_cache()
+        else:
+            logger.info("HyPaint super-resolution skipped (disabled)")
 
         ###########  Bake  ##########
         for i in range(len(enhance_images)):

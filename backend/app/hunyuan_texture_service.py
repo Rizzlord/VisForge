@@ -32,6 +32,7 @@ class HunyuanTextureParams:
     uv_unwrap: bool
     texture_resolution: int
     unload_model_after_generation: bool
+    enable_super_resolution: bool
 
 
 class HunyuanTextureService:

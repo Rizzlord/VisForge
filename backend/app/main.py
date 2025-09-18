@@ -334,6 +334,9 @@ class HunyuanTextureRequest(BaseModel):
     uv_unwrap: bool = Field(True, description="Generate UVs using xatlas")
     texture_resolution: int = Field(2048, ge=512, le=4096)
     unload_model_after_generation: bool = Field(True, description="Release texture weights after run")
+    enable_super_resolution: bool = Field(
+        False, description="Apply RealESRGAN to multiviews (uses additional VRAM)"
+    )
 
 
 class HunyuanTextureResponse(BaseModel):
@@ -482,6 +485,7 @@ async def hunyuan_texture_generate(request: HunyuanTextureRequest) -> HunyuanTex
         uv_unwrap=request.uv_unwrap,
         texture_resolution=request.texture_resolution,
         unload_model_after_generation=request.unload_model_after_generation,
+        enable_super_resolution=request.enable_super_resolution,
     )
 
     async with hunyuan_texture_service.lock:

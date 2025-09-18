@@ -149,6 +149,7 @@ export interface HunyuanTextureParams {
   uvUnwrap: boolean
   textureResolution: number
   unloadModelAfterGeneration: boolean
+  enableSuperResolution: boolean
 }
 
 export interface HunyuanTextureSerializedState {
