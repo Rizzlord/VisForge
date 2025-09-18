@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent as ReactDragEvent,
+} from 'react'
 import { NodeCanvas } from './editor/NodeCanvas'
 import type { EditorSetup } from './editor/createEditor'
 import type { NodeCatalogCategory, NodeKind, SerializedWorkflow } from './editor/types'
@@ -281,6 +289,17 @@ function App() {
     },
     [editorSetup, isBootstrapping],
   )
+
+  const handleLibraryDragStart = useCallback((event: ReactDragEvent<HTMLButtonElement>, kind: NodeKind) => {
+    event.dataTransfer.setData('application/x-visforge-node', kind)
+    event.dataTransfer.setData('text/plain', kind)
+    event.dataTransfer.effectAllowed = 'copy'
+  }, [])
+
+  const handleLibraryDragEnd = useCallback((event: ReactDragEvent<HTMLButtonElement>) => {
+    event.dataTransfer.clearData('application/x-visforge-node')
+    event.dataTransfer.clearData('text/plain')
+  }, [])
 
   const handleSelectWorkflow = useCallback(
     async (id: string) => {
@@ -621,6 +640,9 @@ function App() {
                     type="button"
                     key={entry.kind}
                     onClick={() => void handleAddNode(entry.kind)}
+                    draggable
+                    onDragStart={(event) => handleLibraryDragStart(event, entry.kind)}
+                    onDragEnd={handleLibraryDragEnd}
                     disabled={!editorSetup || isBootstrapping}
                   >
                     <span className="entry-title">{entry.label}</span>

@@ -699,10 +699,14 @@ export function ImageUploadControlView(props: {
 
   return (
     <div className="control-block">
-      <label className="control-label">Load Image</label>
-      <input type="file" accept="image/*" onChange={handleChange} />
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleChange}
+        aria-label="Select image file"
+      />
       {control.image && (
-        <div className="thumbnail">
+        <div className="thumbnail transparent-surface">
           <img src={control.image.dataUrl} alt={control.image.fileName ?? 'Loaded'} />
           <div className="meta-row">
             <span>{control.image.fileName}</span>
@@ -739,8 +743,12 @@ export function ModelUploadControlView(props: {
 
   return (
     <div className="control-block">
-      <label className="control-label">Load Model</label>
-      <input type="file" accept=".glb,.gltf,.babylon,.obj,.stl" onChange={handleChange} />
+      <input
+        type="file"
+        accept=".glb,.gltf,.babylon,.obj,.stl"
+        onChange={handleChange}
+        aria-label="Select model file"
+      />
       {control.model && (
         <div className="meta-row">
           <span>{control.model.fileName}</span>
@@ -772,7 +780,9 @@ export function ChannelsPreviewControlView(props: {
         <div key={key} className="channel-tile">
           <div className="channel-label">{key.toUpperCase()}</div>
           {channels[key] ? (
-            <img src={channels[key]!.dataUrl} alt={`${key} channel`} />
+            <div className="channel-preview transparent-surface">
+              <img src={channels[key]!.dataUrl} alt={`${key} channel`} />
+            </div>
           ) : (
             <span className="channel-placeholder">Connect image input</span>
           )}
@@ -789,9 +799,8 @@ export function ImageDisplayControlView(props: { control: ImageDisplayControl })
 
   return (
     <div className="control-block">
-      <label className="control-label">Image Preview</label>
       {image ? (
-        <div className="preview-frame">
+        <div className="preview-frame transparent-surface">
           <img src={image.dataUrl} alt={image.fileName ?? 'Preview'} />
           <div className="meta-row">
             <span>
@@ -821,7 +830,6 @@ export function Preview3DControlView(props: {
 
   return (
     <div className={`control-block${fill ? ' control-block--fill' : ''}`}>
-      <div className="control-label">Preview 3D</div>
       <ModeSelector mode={control.mode} onSelect={(m) => control.setMode(m)} />
       <ThreeViewport mode={control.mode} model={model} />
     </div>
@@ -858,7 +866,6 @@ export function TripoGenerationControlView(props: {
 
   return (
     <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
-      <div className="control-label">Generate Tripo Model</div>
       {control.error && <div className="control-error">{control.error}</div>}
       {!control.hasInputImage() && <div className="control-hint">Connect an image input to enable generation.</div>}
       <div className="tripo-grid">
@@ -966,7 +973,6 @@ export function HunyuanGenerationControlView(props: {
 
   return (
     <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
-      <div className="control-label">Generate Hy 2.1 Model</div>
       {control.error && <div className="control-error">{control.error}</div>}
       {!control.hasInputImage() && <div className="control-hint">Connect an image input to enable generation.</div>}
       <div className="tripo-grid">
@@ -1039,7 +1045,6 @@ export function HunyuanTextureGenerationControlView(props: {
 
   return (
     <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
-      <div className="control-label">Generate Hy 2.1 Texture</div>
       {control.error && <div className="control-error">{control.error}</div>}
       {!control.hasRequiredInputs() && (
         <div className="control-hint">Connect both an image and a model to enable texture generation.</div>
@@ -1205,7 +1210,6 @@ export function BackgroundRemovalControlView(props: {
 
   return (
     <div className={`control-block${control.isProcessing ? ' generating' : ''}`}>
-      <div className="control-label">Remove Background</div>
       {control.error && <div className="control-error">{control.error}</div>}
       {!control.hasInputImage() && <div className="control-hint">Connect an image input to enable conversion.</div>}
       <div className="tripo-grid">
@@ -1269,7 +1273,6 @@ export function SaveModelControlView(props: { control: SaveModelControl }) {
 
   return (
     <div className="control-block">
-      <div className="control-label">Save Model</div>
       {control.model ? (
         <>
           <div className="control-hint">Model ready: {control.model.fileName ?? 'model.glb'}</div>
@@ -1299,10 +1302,9 @@ export function SaveImageControlView(props: { control: SaveImageControl }) {
 
   return (
     <div className="control-block">
-      <div className="control-label">Save Image</div>
       {control.image ? (
         <>
-          <div className="preview-frame">
+          <div className="preview-frame transparent-surface">
             <img src={control.image.dataUrl} alt="Preview" />
             <div className="meta-row">
               <span>

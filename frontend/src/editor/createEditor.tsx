@@ -294,6 +294,7 @@ export interface EditorSetup {
   serialize(): Promise<SerializedWorkflow>
   load(workflow: SerializedWorkflow): Promise<void>
   clear(): Promise<void>
+  projectScreenPoint(pointer: { x: number; y: number }): { x: number; y: number }
 }
 
 export async function createEditor(container: HTMLElement): Promise<EditorSetup> {
@@ -455,16 +456,21 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
     const serializedNodes: SerializedNode[] = nodes.map((node) => {
       const view = area.nodeViews.get(node.id)
       const position = view ? { x: view.position.x, y: view.position.y } : { x: 0, y: 0 }
-
-      return {
+      const base: SerializedNode = {
         id: node.id,
         kind: node.kind,
         position,
         collapsed: node.collapsed,
         width: node.width,
         height: node.height,
-        state: captureNodeState(node),
       }
+
+      const state = captureNodeState(node)
+      if (state && Object.keys(state).length) {
+        base.state = state
+      }
+
+      return base
     })
 
     const serializedConnections: SerializedConnection[] = connections.map((conn) => ({
@@ -526,13 +532,26 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
       AreaExtensions.zoomAt(area, editor.getNodes())
     }
 
-    scheduleEvaluation()
+    pending = false
+    await runEvaluation()
   }
 
   const clear = async () => {
     await editor.clear()
     useGraphStore.getState().setOutputs({})
-    scheduleEvaluation()
+    pending = false
+    await runEvaluation()
+  }
+
+  const projectScreenPoint = ({ x, y }: { x: number; y: number }) => {
+    const rect = area.container.getBoundingClientRect()
+    const localX = x - rect.left
+    const localY = y - rect.top
+    const { x: tx, y: ty, k } = area.area.transform
+    return {
+      x: (localX - tx) / (k || 1),
+      y: (localY - ty) / (k || 1),
+    }
   }
 
   // Seed an initial demonstration graph
@@ -556,59 +575,49 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
     serialize,
     load,
     clear,
+    projectScreenPoint,
   }
 }
 
 function captureNodeState(node: FoldableNode): SerializedNodeState {
-  if (node instanceof LoadImageNode) {
-    return {
-      image: node.uploader.image,
-    }
+  const state: SerializedNodeState = {}
+
+  if (node instanceof LoadImageNode && node.uploader.image) {
+    state.image = node.uploader.image
   }
 
   if (node instanceof LoadModelNode) {
     const model = node.loader.model
-    if (!model) return {}
-    return {
-      model: {
+    if (model) {
+      state.model = {
         fileName: model.fileName,
         mimeType: model.mimeType,
         base64: arrayBufferToBase64(model.arrayBuffer),
-      },
+      }
     }
   }
 
-  if (node instanceof Preview3DNode) {
-    return {
-      mode: node.preview.mode,
-    }
+  if (node instanceof Preview3DNode && node.preview.mode !== 'Base') {
+    state.mode = node.preview.mode
   }
 
   if (node instanceof GenerateTripoModelNode) {
-    return {
-      tripo: node.generator.serialize(),
-    }
+    state.tripo = node.generator.serialize()
   }
 
   if (node instanceof GenerateHy21ModelNode) {
-    return {
-      hunyuan: node.generator.serialize(),
-    }
+    state.hunyuan = node.generator.serialize()
   }
 
   if (node instanceof GenerateHy21TextureNode) {
-    return {
-      hunyuanTexture: node.generator.serialize(),
-    }
+    state.hunyuanTexture = node.generator.serialize()
   }
 
   if (node instanceof RemoveBackgroundNode) {
-    return {
-      removeBg: node.processor.serialize(),
-    }
+    state.removeBg = node.processor.serialize()
   }
 
-  return {}
+  return state
 }
 
 function applyNodeState(node: FoldableNode, state?: SerializedNodeState) {
@@ -773,15 +782,19 @@ function UnrealNode(props: {
               if (!input) return null
               return (
                 <div className="unreal-node__socket-row" key={key}>
-                  <RefSocket
-                    name="input-socket"
-                    side="input"
-                    socketKey={key}
-                    nodeId={node.id}
-                    emit={emit}
-                    payload={input.socket}
-                  />
-                  <span className="unreal-node__socket-label">{input.label ?? key}</span>
+                  <div
+                    className="socket-wrapper socket-wrapper--input"
+                    data-label={input.label ?? key}
+                  >
+                    <RefSocket
+                      name="input-socket"
+                      side="input"
+                      socketKey={key}
+                      nodeId={node.id}
+                      emit={emit}
+                      payload={input.socket}
+                    />
+                  </div>
                   {input.control && input.showControl && (
                     <div className="unreal-node__inline-control">
                       {renderControlComponent(input.control, onGraphChange)}
@@ -812,15 +825,19 @@ function UnrealNode(props: {
               if (!output) return null
               return (
                 <div className="unreal-node__socket-row" key={key}>
-                  <span className="unreal-node__socket-label">{output.label ?? key}</span>
-                  <RefSocket
-                    name="output-socket"
-                    side="output"
-                    socketKey={key}
-                    nodeId={node.id}
-                    emit={emit}
-                    payload={output.socket}
-                  />
+                  <div
+                    className="socket-wrapper socket-wrapper--output"
+                    data-label={output.label ?? key}
+                  >
+                    <RefSocket
+                      name="output-socket"
+                      side="output"
+                      socketKey={key}
+                      nodeId={node.id}
+                      emit={emit}
+                      payload={output.socket}
+                    />
+                  </div>
                 </div>
               )
             })}

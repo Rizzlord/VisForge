@@ -326,20 +326,19 @@
   border: 1px solid rgba(255, 136, 34, 0.2);
   background: linear-gradient(180deg, rgba(27, 27, 28, 0.95), rgba(18, 18, 19, 0.98));
   box-shadow: 0 28px 48px rgba(0, 0, 0, 0.65);
+  position: relative;
+  user-select: none;
 }
 
 .unreal-node {
   min-width: 220px;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(180deg, rgba(44, 45, 47, 0.95), rgba(28, 28, 29, 0.95));
   border: 1px solid rgba(255, 143, 37, 0.4);
   border-radius: 16px;
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.6);
   transition: transform 0.16s ease, box-shadow 0.16s ease;
-  padding-bottom: 8px;
-}
-
-.unreal-node[data-collapsed='true'] {
-  padding-bottom: 0;
 }
 
 .unreal-node__header {
@@ -348,6 +347,7 @@
   gap: 10px;
   padding: 12px 16px 8px;
   border-bottom: 1px solid rgba(255, 140, 20, 0.3);
+  user-select: none;
 }
 
 .unreal-node__fold {
@@ -392,15 +392,18 @@
 .unreal-node__body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 2fr) minmax(0, 1fr);
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 16px;
+  padding: 16px 20px 48px;
+  position: relative;
+  flex: 1 1 auto;
 }
 
 .unreal-node__inputs,
 .unreal-node__outputs {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  user-select: none;
 }
 
 .unreal-node__inputs .input-socket,
@@ -413,15 +416,16 @@
 .unreal-node__controls {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-width: 180px;
+  gap: 16px;
+  min-width: 220px;
   width: 100%;
+  min-height: 0;
 }
 
 .unreal-node__socket-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   position: relative;
 }
 
@@ -433,10 +437,59 @@
   justify-content: flex-end;
 }
 
-.unreal-node__socket-label {
-  font-size: 0.76rem;
+.socket-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.socket-wrapper::after {
+  content: attr(data-label);
+  position: absolute;
+  top: -14px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(16, 16, 17, 0.9);
+  color: rgba(255, 214, 186, 0.95);
+  font-size: 0.72rem;
   letter-spacing: 0.08em;
-  color: rgba(240, 240, 240, 0.78);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  white-space: nowrap;
+  z-index: 4;
+}
+
+.socket-wrapper:hover::after,
+.socket-wrapper:focus-within::after {
+  opacity: 1;
+  transform: translateY(-10px);
+}
+
+.socket-wrapper--input::after {
+  right: 0;
+  left: auto;
+  transform: translate(4px, -6px);
+  text-align: right;
+}
+
+.socket-wrapper--input:hover::after,
+.socket-wrapper--input:focus-within::after {
+  transform: translate(4px, -10px);
+}
+
+.socket-wrapper--output::after {
+  left: 0;
+  right: auto;
+  text-align: left;
+  transform: translate(-4px, -6px);
+}
+
+.socket-wrapper--output:hover::after,
+.socket-wrapper--output:focus-within::after {
+  transform: translate(-4px, -10px);
 }
 
 .unreal-node .input-socket,
@@ -454,12 +507,12 @@
   transform: scale(1.05);
 }
 
-.unreal-node__inputs .input-socket {
+.unreal-node__inputs .socket-wrapper {
   order: -1;
   margin-left: -26px;
 }
 
-.unreal-node__outputs .output-socket {
+.unreal-node__outputs .socket-wrapper {
   margin-right: -26px;
 }
 
@@ -482,15 +535,18 @@
   display: none;
 }
 
+
 .control-block {
-  background: rgba(48, 48, 49, 0.88);
-  border: 1px solid rgba(255, 140, 20, 0.35);
-  border-radius: 12px;
-  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 140, 20, 0.18);
+  gap: 12px;
+  width: 100%;
+  min-height: 0;
+}
+
+.node-canvas .control-block,
+.node-canvas .control-block * {
+  user-select: text;
 }
 
 .control-block.generating {
@@ -523,13 +579,29 @@
   padding: 6px;
 }
 
+.thumbnail,
+.preview-frame,
+.channel-preview {
+  border: 1px solid rgba(73, 118, 213, 0.35);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.transparent-surface {
+  background-color: rgba(32, 33, 35, 0.82);
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.18) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.18) 75%),
+    linear-gradient(45deg, transparent 25%, rgba(255, 255, 255, 0.18) 25%, rgba(255, 255, 255, 0.18) 75%, transparent 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
+
 .thumbnail img,
 .preview-frame img,
-.channel-tile img {
+.channel-preview img {
   width: 100%;
-  border-radius: 10px;
-  border: 1px solid rgba(73, 118, 213, 0.35);
-  background: rgba(10, 12, 18, 0.85);
+  display: block;
+  background: transparent;
 }
 
 .thumbnail .meta-row,
@@ -646,6 +718,9 @@
 .unreal-node__control-slot {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  min-height: 0;
 }
 
 .unreal-node__inline-control {
@@ -654,12 +729,14 @@
 
 .unreal-node__control-slot--fill {
   flex: 1 1 auto;
+  min-height: 0;
 }
 
 .control-block--fill {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .control-block--fill .mode-selector {
@@ -679,8 +756,8 @@
 
 .unreal-node__resize-handle {
   position: absolute;
-  right: 10px;
-  bottom: 6px;
+  right: 20px;
+  bottom: 20px;
   width: 16px;
   height: 16px;
   border-radius: 3px;
@@ -688,6 +765,7 @@
   background: linear-gradient(135deg, rgba(255, 140, 20, 0.75), rgba(140, 60, 0, 0.75));
   cursor: nwse-resize;
   box-shadow: 0 0 12px rgba(255, 140, 20, 0.35);
+  user-select: none;
 }
 
 .unreal-node[data-collapsed='true'] .unreal-node__resize-handle {
@@ -696,6 +774,18 @@
 
 .unreal-node {
   position: relative;
+}
+
+.node-canvas .rete-connection {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.node-canvas .rete-node {
+  position: absolute;
+  z-index: 1;
+  pointer-events: auto;
 }
 
 .rete-connection path,
