@@ -6,9 +6,11 @@ import json
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Final
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT / "repos" / "Hunyuan3D-2.1"
+VENV_DIR: Final[Path] = REPO_ROOT / "venv"
 WEIGHTS_ROOT = REPO_ROOT / "weights"
 WEIGHTS_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -26,6 +28,7 @@ class HunyuanParams:
     num_chunks: int
     mc_algo: str
     unload_model_after_generation: bool
+    use_repo_venv: bool = False
 
 
 class HunyuanService:
@@ -47,8 +50,10 @@ class HunyuanService:
         request_payload = self._serialize_request(image_data_url, params)
         request_json = json.dumps(request_payload)
 
+        python_executable = self._resolve_python(params.use_repo_venv)
+
         cmd = [
-            sys.executable,
+            python_executable,
             str(Path(__file__).resolve().parent / "hunyuan_worker.py"),
         ]
 
@@ -76,6 +81,20 @@ class HunyuanService:
 
         glb_bytes = base64.b64decode(response["glb_base64"])
         return glb_bytes, response
+
+    def _resolve_python(self, use_repo_venv: bool) -> str:
+        if not use_repo_venv:
+            return sys.executable
+
+        if sys.platform.startswith('win'):
+            candidate = VENV_DIR / 'Scripts' / 'python.exe'
+        else:
+            candidate = VENV_DIR / 'bin' / 'python'
+
+        if not candidate.exists():
+            raise RuntimeError(f"Virtual environment python executable not found at {candidate}")
+
+        return str(candidate)
 
 
 hunyuan_service = HunyuanService()

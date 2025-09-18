@@ -152,10 +152,13 @@
   display: flex;
   flex-direction: column;
   color: #f4f5f7;
+  height: 100%;
+  max-height: 100vh;
+  box-sizing: border-box;
 }
 
 .logs-pane.open {
-  width: 360px;
+  width: min(360px, 90vw);
   padding: 24px 20px;
   opacity: 1;
   pointer-events: auto;
@@ -201,6 +204,10 @@
   gap: 10px;
   font-family: 'Fira Code', 'Source Code Pro', monospace;
   scrollbar-width: thin;
+  min-height: 0;
+  scrollbar-gutter: stable;
+  max-height: calc(100vh - 160px);
+  overscroll-behavior: contain;
 }
 
 .logs-pane__empty {

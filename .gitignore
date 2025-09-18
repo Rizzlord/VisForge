@@ -163,3 +163,4 @@ cython_debug/
 backend/repos/Hunyuan3D-2.1/weights/tencent-Hunyuan3D-2.1/README.md
 /backend/repos/RMBG-2.0/rmbg
 /backend/repos/upscale
+/backend/repos/DetailGen3D/pretrained_weights

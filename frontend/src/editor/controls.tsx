@@ -39,6 +39,7 @@ const DEFAULT_TRIPO_PARAMS: TripoParams = {
   hierarchicalOctreeResolution: 512,
   flashOctreeResolution: 512,
   unloadModelAfterGeneration: true,
+  useRepoVenv: false,
 }
 
 const OCTREE_OPTIONS = [256, 512, 1024, 2048]
@@ -53,6 +54,7 @@ const DEFAULT_HUNYUAN_PARAMS: HunyuanParams = {
   numChunks: 8000,
   mcAlgo: 'dmc',
   unloadModelAfterGeneration: true,
+  useRepoVenv: false,
 }
 
 const DEFAULT_REMOVE_BG_PARAMS: RemoveBgParams = {
@@ -60,6 +62,7 @@ const DEFAULT_REMOVE_BG_PARAMS: RemoveBgParams = {
   transparent: true,
   color: '#ffffff',
   unloadModel: true,
+  useRepoVenv: false,
 }
 
 const HUNYUAN_VIEW_COUNT_OPTIONS = [6, 8] as const
@@ -78,6 +81,7 @@ const DEFAULT_HUNYUAN_TEXTURE_PARAMS: HunyuanTextureParams = {
   textureResolution: 2048,
   unloadModelAfterGeneration: true,
   enableSuperResolution: false,
+  useRepoVenv: false,
 }
 
 export class ReactiveControl extends ClassicPreset.Control {
@@ -235,6 +239,7 @@ export class TripoGenerationControl extends ReactiveControl {
           hierarchical_octree_resolution: this.params.hierarchicalOctreeResolution,
           flash_octree_resolution: this.params.flashOctreeResolution,
           unload_model_after_generation: this.params.unloadModelAfterGeneration,
+          use_repo_venv: this.params.useRepoVenv,
         }),
       })
 
@@ -338,6 +343,7 @@ export class HunyuanGenerationControl extends ReactiveControl {
           num_chunks: this.params.numChunks,
           mc_algo: this.params.mcAlgo,
           unload_model_after_generation: this.params.unloadModelAfterGeneration,
+          use_repo_venv: this.params.useRepoVenv,
         }),
       })
 
@@ -494,6 +500,7 @@ export class HunyuanTextureGenerationControl extends ReactiveControl {
           remesh_mesh: this.params.remeshMesh,
           enable_super_resolution: this.params.enableSuperResolution,
           unload_model_after_generation: this.params.unloadModelAfterGeneration,
+          use_repo_venv: this.params.useRepoVenv,
         }),
       })
 
@@ -625,6 +632,7 @@ export class BackgroundRemovalControl extends ReactiveControl {
           transparent: this.params.transparent,
           color: this.params.transparent ? undefined : this.params.color,
           unload_model: this.params.unloadModel,
+          use_repo_venv: this.params.useRepoVenv,
         }),
       })
 
@@ -938,6 +946,10 @@ export function TripoGenerationControlView(props: {
         <input type="checkbox" checked={params.unloadModelAfterGeneration} onChange={handleCheckbox('unloadModelAfterGeneration')} />
         Unload models after generation
       </label>
+      <label className="checkbox">
+        <input type="checkbox" checked={params.useRepoVenv} onChange={handleCheckbox('useRepoVenv')} />
+        Use repo virtual environment
+      </label>
       {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}
     </div>
   )
@@ -1017,6 +1029,14 @@ export function HunyuanGenerationControlView(props: {
           onChange={handleCheckbox('unloadModelAfterGeneration')}
         />
         Unload models after generation
+      </label>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={params.useRepoVenv}
+          onChange={handleCheckbox('useRepoVenv')}
+        />
+        Use repo virtual environment
       </label>
       {control.model && <div className="control-hint">Model ready: {control.model.fileName}</div>}
     </div>
@@ -1177,6 +1197,14 @@ export function HunyuanTextureGenerationControlView(props: {
           />
           Unload models after generation
         </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.useRepoVenv}
+            onChange={(event) => control.updateParam('useRepoVenv', event.target.checked)}
+          />
+          Use repo virtual environment
+        </label>
       </div>
       <button type="button" onClick={() => void control.generate(onGraphChange)} disabled={disableGenerate}>
         {control.isGenerating ? 'Generating…' : 'Generate Texture'}
@@ -1241,6 +1269,14 @@ export function BackgroundRemovalControlView(props: {
             onChange={(event) => control.updateParam('unloadModel', event.target.checked)}
           />
           Unload model after conversion
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.useRepoVenv}
+            onChange={(event) => control.updateParam('useRepoVenv', event.target.checked)}
+          />
+          Use repo virtual environment
         </label>
       </div>
       <button type="button" onClick={() => void control.convert(onGraphChange)} disabled={disableConvert}>

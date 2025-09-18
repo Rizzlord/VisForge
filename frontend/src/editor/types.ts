@@ -108,6 +108,7 @@ export interface TripoParams {
   hierarchicalOctreeResolution: number
   flashOctreeResolution: number
   unloadModelAfterGeneration: boolean
+  useRepoVenv: boolean
 }
 
 export interface TripoSerializedState {
@@ -127,6 +128,7 @@ export interface HunyuanParams {
   numChunks: number
   mcAlgo: 'mc' | 'dmc'
   unloadModelAfterGeneration: boolean
+  useRepoVenv: boolean
 }
 
 export interface HunyuanSerializedState {
@@ -150,6 +152,7 @@ export interface HunyuanTextureParams {
   textureResolution: number
   unloadModelAfterGeneration: boolean
   enableSuperResolution: boolean
+  useRepoVenv: boolean
 }
 
 export interface HunyuanTextureSerializedState {
@@ -168,6 +171,7 @@ export interface RemoveBgParams {
   transparent: boolean
   color: string
   unloadModel: boolean
+  useRepoVenv: boolean
 }
 
 export interface RemoveBgSerializedState {

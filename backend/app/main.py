@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 import base64
 import io
 import json
 import logging
 import re
+import sys
 from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Literal, Optional
@@ -20,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from .triposg_service import TripoParams, triposg_service
 from .hunyuan_service import HunyuanParams, hunyuan_service
 from .hunyuan_texture_service import HunyuanTextureParams, hunyuan_texture_service
-from .rmbg_service import rmbg_service
+from .rmbg_service import rmbg_service, REPO_ROOT as RMBG_REPO_ROOT
 from PIL import Image
 
 LOG_BUFFER: deque[dict[str, Any]] = deque(maxlen=1000)
@@ -65,6 +67,18 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS_DIR = BACKEND_ROOT / "workflows"
 WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
 WORKFLOWS_INDEX_FILE = WORKFLOWS_DIR / "index.json"
+
+
+def _resolve_repo_python(venv_dir: Path) -> Path:
+    if sys.platform.startswith('win'):
+        candidate = venv_dir / 'Scripts' / 'python.exe'
+    else:
+        candidate = venv_dir / 'bin' / 'python'
+
+    if not candidate.exists():
+        raise RuntimeError(f"Virtual environment python executable not found at {candidate}")
+
+    return candidate
 
 app = FastAPI(title="VisForge Execution API", version="0.1.0")
 
@@ -277,6 +291,7 @@ class TripoSGRequest(BaseModel):
     hierarchical_octree_resolution: int = Field(512, description="Hierarchical octree base resolution (power of two)")
     flash_octree_resolution: int = Field(512, description="Flash octree resolution (power of two)")
     unload_model_after_generation: bool = True
+    use_repo_venv: bool = Field(False, description="Run worker inside repository virtual environment if available")
 
     @model_validator(mode="after")
     def _validate_resolutions(self) -> 'TripoSGRequest':
@@ -308,6 +323,7 @@ class HunyuanRequest(BaseModel):
     num_chunks: int = Field(8000, ge=1000, le=5_000_000)
     mc_algo: Literal['mc', 'dmc'] = Field('dmc', description="Surface extraction algorithm")
     unload_model_after_generation: bool = Field(True, description="Release model weights after generation")
+    use_repo_venv: bool = Field(False, description="Run worker inside repository virtual environment if available")
 
 
 class HunyuanResponse(BaseModel):
@@ -337,6 +353,7 @@ class HunyuanTextureRequest(BaseModel):
     enable_super_resolution: bool = Field(
         False, description="Apply RealESRGAN to multiviews (uses additional VRAM)"
     )
+    use_repo_venv: bool = Field(False, description="Run worker inside repository virtual environment if available")
 
 
 class HunyuanTextureResponse(BaseModel):
@@ -410,6 +427,7 @@ async def execution_progress(websocket: WebSocket) -> None:
 
 @app.post("/triposg/generate", response_model=TripoSGResponse)
 async def triposg_generate(request: TripoSGRequest) -> TripoSGResponse:
+    logger.info("TripoSG job started (seed=%s)", request.seed)
     params = TripoParams(
         seed=request.seed,
         use_float16=request.use_float16,
@@ -423,6 +441,7 @@ async def triposg_generate(request: TripoSGRequest) -> TripoSGResponse:
         hierarchical_octree_resolution=request.hierarchical_octree_resolution,
         flash_octree_resolution=request.flash_octree_resolution,
         unload_model_after_generation=request.unload_model_after_generation,
+        use_repo_venv=request.use_repo_venv,
     )
 
     async with triposg_service.lock:
@@ -432,14 +451,17 @@ async def triposg_generate(request: TripoSGRequest) -> TripoSGResponse:
                 params,
             )
         except Exception as exc:  # pragma: no cover - runtime error surface
+            logger.exception("TripoSG job failed: %s", exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     glb_base64 = base64.b64encode(glb_bytes).decode("utf-8")
+    logger.info("TripoSG job completed (seed=%s, size=%d bytes)", request.seed, len(glb_bytes))
     return TripoSGResponse(glb_base64=glb_base64)
 
 
 @app.post("/hunyuan/generate", response_model=HunyuanResponse)
 async def hunyuan_generate(request: HunyuanRequest) -> HunyuanResponse:
+    logger.info("Hunyuan job started (seed=%s, randomize=%s)", request.seed, request.randomize_seed)
     params = HunyuanParams(
         seed=request.seed,
         randomize_seed=request.randomize_seed,
@@ -450,6 +472,7 @@ async def hunyuan_generate(request: HunyuanRequest) -> HunyuanResponse:
         num_chunks=request.num_chunks,
         mc_algo=request.mc_algo,
         unload_model_after_generation=request.unload_model_after_generation,
+        use_repo_venv=request.use_repo_venv,
     )
 
     async with hunyuan_service.lock:
@@ -459,9 +482,15 @@ async def hunyuan_generate(request: HunyuanRequest) -> HunyuanResponse:
                 params,
             )
         except Exception as exc:  # pragma: no cover - runtime error surface
+            logger.exception("Hunyuan job failed: %s", exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     glb_base64 = base64.b64encode(glb_bytes).decode("utf-8")
+    logger.info(
+        "Hunyuan job completed (seed=%s, size=%d bytes)",
+        metadata.get("seed", request.seed),
+        len(glb_bytes),
+    )
     return HunyuanResponse(
         glb_base64=glb_base64,
         file_name=str(metadata.get("file_name", "hunyuan-model.glb")),
@@ -472,6 +501,11 @@ async def hunyuan_generate(request: HunyuanRequest) -> HunyuanResponse:
 
 @app.post("/hunyuan/texture", response_model=HunyuanTextureResponse)
 async def hunyuan_texture_generate(request: HunyuanTextureRequest) -> HunyuanTextureResponse:
+    logger.info(
+        "Hunyuan texture job started (seed=%s, views=%s)",
+        request.seed,
+        request.max_view_count,
+    )
     params = HunyuanTextureParams(
         seed=request.seed,
         randomize_seed=request.randomize_seed,
@@ -486,6 +520,7 @@ async def hunyuan_texture_generate(request: HunyuanTextureRequest) -> HunyuanTex
         texture_resolution=request.texture_resolution,
         unload_model_after_generation=request.unload_model_after_generation,
         enable_super_resolution=request.enable_super_resolution,
+        use_repo_venv=request.use_repo_venv,
     )
 
     async with hunyuan_texture_service.lock:
@@ -496,8 +531,10 @@ async def hunyuan_texture_generate(request: HunyuanTextureRequest) -> HunyuanTex
                 params,
             )
         except Exception as exc:  # pragma: no cover - runtime
+            logger.exception("Hunyuan texture job failed: %s", exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    logger.info("Hunyuan texture job completed (seed=%s)", result.get("seed", request.seed))
     return HunyuanTextureResponse(**result)
 
 
@@ -507,6 +544,7 @@ class RemoveBackgroundRequest(BaseModel):
     transparent: bool = Field(True, description="Return transparent background (ignored for RGB)")
     color: Optional[str] = Field('#ffffff', description="Hex color for non-transparent background")
     unload_model: bool = Field(True, description="Release RMBG weights after processing")
+    use_repo_venv: bool = Field(False, description="Run worker inside repository virtual environment if available")
 
     @model_validator(mode="after")
     def _validate_color(self) -> 'RemoveBackgroundRequest':
@@ -575,9 +613,46 @@ def _process_background(request: RemoveBackgroundRequest) -> RemoveBackgroundRes
     )
 
 
+async def _process_background_with_worker(request: RemoveBackgroundRequest) -> RemoveBackgroundResponse:
+    python_path = _resolve_repo_python(RMBG_REPO_ROOT / 'venv')
+    worker_path = Path(__file__).resolve().parent / 'rmbg_worker.py'
+
+    process = await asyncio.create_subprocess_exec(
+        str(python_path),
+        str(worker_path),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    assert process.stdin and process.stdout
+
+    payload = request.model_dump()
+    stdout, stderr = await process.communicate(json.dumps(payload).encode('utf-8'))
+
+    if process.returncode != 0:
+        detail = stderr.decode('utf-8', errors='ignore') or 'Background removal worker failed'
+        raise RuntimeError(detail)
+
+    response_payload = json.loads(stdout.decode('utf-8'))
+    return RemoveBackgroundResponse(**response_payload)
+
+
 @app.post("/image/remove_background", response_model=RemoveBackgroundResponse)
 async def remove_background_endpoint(request: RemoveBackgroundRequest) -> RemoveBackgroundResponse:
     try:
-        return await run_in_threadpool(_process_background, request)
+        logger.info(
+            "Background removal job started (transparent=%s, mode=%s)",
+            request.transparent,
+            request.mode,
+        )
+        async with rmbg_service.lock:
+            if request.use_repo_venv:
+                result = await _process_background_with_worker(request)
+            else:
+                result = await run_in_threadpool(_process_background, request)
+        logger.info("Background removal job completed (%dx%d)", result.width, result.height)
+        return result
     except Exception as exc:  # pragma: no cover - runtime error surface
+        logger.exception("Background removal job failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

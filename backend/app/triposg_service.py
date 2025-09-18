@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import sys
+from typing import Final
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,7 @@ import numpy as np
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT / "repos" / "TripoSG"
+VENV_DIR: Final[Path] = REPO_ROOT / "venv"
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 WEIGHTS_ROOT = REPO_ROOT / "weights"
 WEIGHTS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -34,6 +36,7 @@ class TripoParams:
     hierarchical_octree_resolution: int
     flash_octree_resolution: int
     unload_model_after_generation: bool
+    use_repo_venv: bool = False
 
 
 class TripoSGService:
@@ -56,8 +59,10 @@ class TripoSGService:
         request_payload = self._serialize_request(image_data_url, params)
         request_json = json.dumps(request_payload)
 
+        python_executable = self._resolve_python(params.use_repo_venv)
+
         cmd = [
-            sys.executable,
+            python_executable,
             str(Path(__file__).resolve().parent / 'tripo_worker.py'),
         ]
 
@@ -83,6 +88,20 @@ class TripoSGService:
         if 'glb_base64' not in response:
             raise RuntimeError('Worker response missing glb_base64 field')
         return base64.b64decode(response['glb_base64'])
+
+    def _resolve_python(self, use_repo_venv: bool) -> str:
+        if not use_repo_venv:
+            return sys.executable
+
+        if sys.platform.startswith('win'):
+            candidate = VENV_DIR / 'Scripts' / 'python.exe'
+        else:
+            candidate = VENV_DIR / 'bin' / 'python'
+
+        if not candidate.exists():
+            raise RuntimeError(f"Virtual environment python executable not found at {candidate}")
+
+        return str(candidate)
 
 
 triposg_service = TripoSGService()

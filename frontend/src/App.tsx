@@ -152,6 +152,8 @@ function App() {
   const bootstrappedRef = useRef(false)
   const logTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const latestLogIdRef = useRef(0)
+  const logsBodyRef = useRef<HTMLDivElement | null>(null)
+  const [isLogsAutoScroll, setLogsAutoScroll] = useState(true)
 
   useEffect(() => {
     return () => {
@@ -503,6 +505,7 @@ function App() {
         clearInterval(logTimerRef.current)
         logTimerRef.current = null
       }
+      setLogsAutoScroll(true)
       return
     }
 
@@ -538,6 +541,31 @@ function App() {
       }
     }
   }, [showLogs])
+
+  useEffect(() => {
+    if (!showLogs) return
+    const body = logsBodyRef.current
+    if (!body) return
+
+    const handleScroll = () => {
+      const distanceFromBottom = body.scrollHeight - (body.scrollTop + body.clientHeight)
+      const atBottom = distanceFromBottom <= 16
+      setLogsAutoScroll((prev) => (prev === atBottom ? prev : atBottom))
+    }
+
+    handleScroll()
+    body.addEventListener('scroll', handleScroll)
+    return () => {
+      body.removeEventListener('scroll', handleScroll)
+    }
+  }, [showLogs])
+
+  useEffect(() => {
+    if (!showLogs || !isLogsAutoScroll) return
+    const body = logsBodyRef.current
+    if (!body) return
+    body.scrollTop = body.scrollHeight
+  }, [logs, showLogs, isLogsAutoScroll])
 
   const formatLogTime = useCallback((timestamp: number) => {
     try {
@@ -666,7 +694,7 @@ function App() {
               </button>
             </div>
           </div>
-          <div className="logs-pane__body">
+          <div className="logs-pane__body" ref={logsBodyRef}>
             {logs.length ? (
               logs.map((entry) => (
                 <div key={entry.id} className={`logs-entry logs-entry--${entry.level.toLowerCase()}`}>
