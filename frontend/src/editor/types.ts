@@ -190,6 +190,7 @@ export interface DetailGenParams {
   guidanceScale: number
   noiseAug: number
   useRepoVenv: boolean
+  unloadModelAfterGeneration: boolean
 }
 
 export interface DetailGenSerializedState {

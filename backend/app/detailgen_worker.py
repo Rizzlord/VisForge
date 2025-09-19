@@ -142,6 +142,36 @@ def process(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     glb_base64, size = _encode_mesh(output_mesh)
 
+    # Optionally unload models and clear GPU memory to free VRAM
+    try:
+        if bool(payload.get("unload_model_after_generation", False)):
+            # Delete large objects and pipeline references
+            try:
+                del pipeline
+            except Exception:
+                pass
+
+            # Delete intermediate tensors if they exist
+            for name in ("encoder_output", "sampled_points", "surface"):
+                try:
+                    if name in locals():
+                        del locals()[name]
+                except Exception:
+                    pass
+
+            # Force Python GC and clear CUDA cache if available
+            import gc as _gc
+
+            _gc.collect()
+            if device.type == "cuda":
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+    except Exception:
+        # Ensure we don't mask the success response if cleanup fails
+        pass
+
     return {
         "glb_base64": glb_base64,
         "file_name": payload.get("file_name", "detailgen-refined.glb"),

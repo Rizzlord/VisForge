@@ -24,6 +24,7 @@ class DetailGen3DParams:
     guidance_scale: float
     noise_aug: float
     use_repo_venv: bool = False
+    unload_model_after_generation: bool = True
 
 
 class DetailGen3DService:

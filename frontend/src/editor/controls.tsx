@@ -92,6 +92,7 @@ const DEFAULT_DETAILGEN_PARAMS: DetailGenParams = {
   guidanceScale: 10,
   noiseAug: 0,
   useRepoVenv: false,
+  unloadModelAfterGeneration: true,
 }
 
 export class ReactiveControl extends ClassicPreset.Control {
@@ -755,6 +756,7 @@ export class DetailGen3DControl extends ReactiveControl {
           num_inference_steps: this.params.numInferenceSteps,
           guidance_scale: this.params.guidanceScale,
           noise_aug: this.params.noiseAug,
+          unload_model_after_generation: this.params.unloadModelAfterGeneration,
           use_repo_venv: this.params.useRepoVenv,
         }),
       })
@@ -1391,6 +1393,14 @@ export function DetailGen3DControlView(props: {
         <label className="checkbox">
           <input type="checkbox" checked={params.useRepoVenv} onChange={(event) => control.updateParam('useRepoVenv', event.target.checked)} />
           Use repo virtual environment
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.unloadModelAfterGeneration}
+            onChange={(event) => control.updateParam('unloadModelAfterGeneration', event.target.checked)}
+          />
+          Unload models after generation
         </label>
       </div>
       <button type="button" onClick={() => void control.generate(onGraphChange)} disabled={disable}>
