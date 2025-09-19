@@ -33,6 +33,8 @@ import {
   SaveModelControlView,
   SaveImageControl,
   SaveImageControlView,
+  UpscaleGenerationControl,
+  UpscaleGenerationControlView,
 } from './controls'
 import { useGraphStore } from './store'
 import type {
@@ -206,6 +208,20 @@ class DetailGen3DNode extends FoldableNode {
   }
 }
 
+class UpscaleNode extends FoldableNode {
+  readonly generator: UpscaleGenerationControl
+
+  constructor() {
+    super('Upscale Image', 'upscaleImage')
+    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
+    this.addOutput('image', new ClassicPreset.Output(imageSocket, 'Image'))
+    this.generator = new UpscaleGenerationControl(this.id)
+    this.addControl('generate', this.generator)
+    this.width = 360
+    this.height = 260
+  }
+}
+
 class RemoveBackgroundNode extends FoldableNode {
   readonly processor: BackgroundRemovalControl
 
@@ -258,6 +274,7 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   saveModel: () => new SaveModelNode(),
   saveImage: () => new SaveImageNode(),
   refineDetailGen3d: () => new DetailGen3DNode(),
+  upscaleImage: () => new UpscaleNode(),
 }
 
 const DEFAULT_NODE_WIDTH = 280
@@ -281,6 +298,7 @@ const NODE_CATALOG: NodeCatalogCategory[] = [
       { kind: 'separateChannels', label: 'Separate Channels', description: 'Split RGBA channels.' },
       { kind: 'combineChannels', label: 'Combine Channels', description: 'Rebuild RGBA from inputs.' },
       { kind: 'removeBackground', label: 'Remove Background', description: 'Strip or replace image backgrounds.' },
+      { kind: 'upscaleImage', label: 'Upscale Image', description: 'Upscale image using Real-ESRGAN.' },
     ],
   },
   {
@@ -640,6 +658,10 @@ function captureNodeState(node: FoldableNode): SerializedNodeState {
     state.detailGen3d = node.generator.serialize()
   }
 
+  if (node instanceof UpscaleNode) {
+    state.upscale = node.generator.serialize()
+  }
+
   return state
 }
 
@@ -685,6 +707,10 @@ function applyNodeState(node: FoldableNode, state?: SerializedNodeState) {
 
   if (node instanceof DetailGen3DNode && state.detailGen3d) {
     node.generator.applySerialized(state.detailGen3d)
+  }
+
+  if (node instanceof UpscaleNode && state.upscale) {
+    node.generator.applySerialized(state.upscale)
   }
 }
 
@@ -915,6 +941,10 @@ function renderControlComponent(control: ClassicPreset.Control, onGraphChange: (
     return <DetailGen3DControlView control={control} onGraphChange={onGraphChange} />
   }
 
+  if (control instanceof UpscaleGenerationControl) {
+    return <UpscaleGenerationControlView control={control} onGraphChange={onGraphChange} />
+  }
+
   if (control instanceof BackgroundRemovalControl) {
     return <BackgroundRemovalControlView control={control} onGraphChange={onGraphChange} />
   }
@@ -1029,6 +1059,8 @@ async function evaluateNode(
     return model ? { model } : {}
   }
 
+  // Upscale node handled below with the 'generate' control key
+
   if (node instanceof GenerateTripoModelNode) {
     const control = node.controls.generate as TripoGenerationControl | undefined
     const image = inputs.image as ImageValue | undefined
@@ -1063,6 +1095,13 @@ async function evaluateNode(
     control?.setInputModel(model)
     control?.setInputImage(image)
     return control?.model ? { model: control.model } : {}
+  }
+
+  if (node instanceof UpscaleNode) {
+    const control = node.controls.generate as UpscaleGenerationControl | undefined
+    const image = inputs.image as ImageValue | undefined
+    control?.setInputImage(image)
+    return control?.image ? { image: control.image } : {}
   }
 
   if (node instanceof RemoveBackgroundNode) {

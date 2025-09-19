@@ -24,6 +24,7 @@ from .hunyuan_service import HunyuanParams, hunyuan_service
 from .hunyuan_texture_service import HunyuanTextureParams, hunyuan_texture_service
 from .detailgen_service import DetailGen3DParams, detailgen_service
 from .rmbg_service import rmbg_service, REPO_ROOT as RMBG_REPO_ROOT
+from .upscale_service import UpscaleParams, upscale_service
 from PIL import Image
 
 LOG_BUFFER: deque[dict[str, Any]] = deque(maxlen=1000)
@@ -392,6 +393,20 @@ class HunyuanTextureResponse(BaseModel):
     rm_height: int
 
 
+class UpscaleRequest(BaseModel):
+    image_data_url: str = Field(..., description="Image data URL (base64) to upscale")
+    unload_model_after_generation: bool = Field(True, description="Release model weights after generation")
+    use_repo_venv: bool = Field(False, description="Run worker inside repository virtual environment if available")
+
+
+class UpscaleResponse(BaseModel):
+    image_base64: str
+    file_name: str = "upscaled.png"
+    mime_type: str = "image/png"
+    width: int
+    height: int
+
+
 @app.post("/execute")
 async def execute_graph(graph: GraphPayload) -> Dict[str, Any]:
     """Validate and topologically order the submitted graph."""
@@ -588,6 +603,28 @@ async def hunyuan_texture_generate(request: HunyuanTextureRequest) -> HunyuanTex
 
     logger.info("Hunyuan texture job completed (seed=%s)", result.get("seed", request.seed))
     return HunyuanTextureResponse(**result)
+
+
+@app.post("/upscale/generate", response_model=UpscaleResponse)
+async def upscale_generate(request: UpscaleRequest) -> UpscaleResponse:
+    logger.info("Upscale job started")
+    params = UpscaleParams(
+        unload_model_after_generation=request.unload_model_after_generation,
+        use_repo_venv=request.use_repo_venv,
+    )
+
+    async with upscale_service.lock:
+        try:
+            result = await upscale_service.generate(
+                request.image_data_url,
+                params,
+            )
+        except Exception as exc:  # pragma: no cover - runtime
+            logger.exception("Upscale job failed: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    logger.info("Upscale job completed")
+    return UpscaleResponse(**result)
 
 
 class RemoveBackgroundRequest(BaseModel):

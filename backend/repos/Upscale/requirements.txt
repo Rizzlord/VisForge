@@ -1,0 +1,10 @@
+numpy
+Pillow
+# realesrgan and basicsr are not always available via pip wheels; install with pip where possible
+realesrgan
+basicsr
+# For PyTorch, choose the correct build for your environment (CUDA or CPU). Example for CPU-only:
+# torch==2.2.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+# For GPU, follow instructions at https://pytorch.org/get-started/locally/
+torch
+opencv-python

@@ -25,6 +25,8 @@ import type {
   DetailGenSerializedState,
   TripoParams,
   TripoSerializedState,
+  UpscaleParams,
+  UpscaleSerializedState,
 } from './types'
 
 const EMPTY_OUTPUTS = Object.freeze({}) as GraphOutputs[string]
@@ -93,6 +95,15 @@ const DEFAULT_DETAILGEN_PARAMS: DetailGenParams = {
   noiseAug: 0,
   useRepoVenv: false,
   unloadModelAfterGeneration: true,
+}
+
+const DEFAULT_UPSCALE_PARAMS: UpscaleParams = {
+  unloadModelAfterGeneration: true,
+  useRepoVenv: false,
+  targetResolution: 2048,
+  tileSize: 512,
+  noiseLevel: 0.0,
+  scale: 2,
 }
 
 export class ReactiveControl extends ClassicPreset.Control {
@@ -184,6 +195,9 @@ export class TripoGenerationControl extends ReactiveControl {
 
   setInputImage(image: ImageValue | undefined) {
     this.inputImage = image ?? null
+    // debug: help trace when an image input is provided to the control
+    // eslint-disable-next-line no-console
+    console.debug('[UpscaleGenerationControl] setInputImage', this.nodeId, !!this.inputImage, this.inputImage?.fileName)
     this.notify()
   }
 
@@ -785,6 +799,109 @@ export class DetailGen3DControl extends ReactiveControl {
     } catch (error) {
       this.isGenerating = false
       this.error = error instanceof Error ? error.message : 'Unknown error'
+      this.notify()
+    }
+  }
+}
+
+export class UpscaleGenerationControl extends ReactiveControl {
+  params: UpscaleParams = { ...DEFAULT_UPSCALE_PARAMS }
+  image: ImageValue | null = null
+  isGenerating = false
+  error: string | null = null
+  private inputImage: ImageValue | null = null
+
+  setInputImage(image: ImageValue | undefined) {
+    this.inputImage = image ?? null
+    this.notify()
+  }
+
+  hasInputImage(): boolean {
+    return this.inputImage !== null
+  }
+
+  updateParam<K extends keyof UpscaleParams>(key: K, value: UpscaleParams[K]) {
+    this.params = { ...this.params, [key]: value }
+    this.notify()
+  }
+
+  applySerialized(state?: UpscaleSerializedState) {
+    if (!state) return
+    this.params = { ...this.params, ...state.params }
+    if (state.imageBase64) {
+      this.image = {
+        kind: 'image',
+        dataUrl: `data:${state.imageMimeType};base64,${state.imageBase64}`,
+        fileName: state.imageFileName ?? 'upscaled.png',
+        width: state.width,
+        height: state.height,
+      }
+    }
+    this.notify()
+  }
+
+  serialize(): UpscaleSerializedState {
+    const base: UpscaleSerializedState = { params: { ...this.params } }
+    if (this.image) {
+      const [header, data] = this.image.dataUrl.split(',')
+      const mime = header.split(';')[0].split(':')[1]
+      base.imageBase64 = data
+      base.imageFileName = this.image.fileName
+      base.imageMimeType = mime
+      base.width = this.image.width
+      base.height = this.image.height
+    }
+    return base
+  }
+
+  async generate(onGraphChange: () => void) {
+    if (!this.inputImage) {
+      this.error = 'Connect an image input before generating.'
+      this.notify()
+      return
+    }
+    this.isGenerating = true
+    this.error = null
+    this.image = null
+    this.notify()
+
+    try {
+      const response = await fetch(`${BACKEND_BASE}/upscale/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_data_url: this.inputImage.dataUrl,
+          unload_model_after_generation: this.params.unloadModelAfterGeneration,
+          use_repo_venv: this.params.useRepoVenv,
+          target_resolution: this.params.targetResolution,
+          tile_size: this.params.tileSize,
+          noise_level: this.params.noiseLevel,
+          scale: this.params.scale,
+        }),
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || 'Failed to generate model')
+      }
+
+      const payload = await response.json()
+      if (!payload.image_base64) {
+        throw new Error('Response did not include image data')
+      }
+
+      this.image = {
+        kind: 'image',
+        dataUrl: `data:${payload.mime_type};base64,${payload.image_base64}`,
+        fileName: payload.file_name ?? 'upscaled.png',
+        width: payload.width,
+        height: payload.height,
+      }
+      onGraphChange()
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : 'Failed to upscale image'
+    } finally {
+      this.isGenerating = false
       this.notify()
     }
   }
@@ -1480,6 +1597,105 @@ export function BackgroundRemovalControlView(props: {
       {control.image && (
         <div className="control-hint">
           Ready: {control.image.fileName ?? 'processed.png'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function UpscaleGenerationControlView(props: {
+  control: UpscaleGenerationControl
+  onGraphChange: () => void
+}) {
+  const { control, onGraphChange } = props
+  const [, forceUpdate] = useState(0)
+  useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
+
+  return (
+    <div className="control">
+      <div className="control__row">
+        <label>
+          <input
+            type="checkbox"
+            checked={control.params.unloadModelAfterGeneration}
+            onChange={(event) => control.updateParam('unloadModelAfterGeneration', event.target.checked)}
+          />
+          Unload model
+        </label>
+      </div>
+      <div className="control__row">
+        <label>
+          <input
+            type="checkbox"
+            checked={control.params.useRepoVenv}
+            onChange={(event) => control.updateParam('useRepoVenv', event.target.checked)}
+          />
+          Use repo venv
+        </label>
+      </div>
+          <div className="control__row">
+            <label>
+              Target resolution
+              <input
+                type="number"
+                value={control.params.targetResolution}
+                onChange={(e) => control.updateParam('targetResolution', Number(e.target.value) || 0)}
+                min={1}
+                step={1}
+              />
+            </label>
+          </div>
+          <div className="control__row">
+            <label>
+              Tile size
+              <input
+                type="number"
+                value={control.params.tileSize}
+                onChange={(e) => control.updateParam('tileSize', Number(e.target.value) || 0)}
+                min={1}
+                step={1}
+              />
+            </label>
+          </div>
+          <div className="control__row">
+            <label>
+              Denoise (0-1)
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={control.params.noiseLevel}
+                onChange={(e) => control.updateParam('noiseLevel', Number(e.target.value))}
+              />
+              <span>{control.params.noiseLevel.toFixed(2)}</span>
+            </label>
+          </div>
+          <div className="control__row">
+            <label>
+              Scale
+              <select value={control.params.scale} onChange={(e) => control.updateParam('scale', Number(e.target.value))}>
+                <option value={1}>1x</option>
+                <option value={2}>2x</option>
+                <option value={4}>4x</option>
+              </select>
+            </label>
+          </div>
+      {control.error && <div className="control__error">{control.error}</div>}
+      <div className="control__row">
+        <button
+          type="button"
+          className="control__button"
+          onClick={() => void control.generate(onGraphChange)}
+          disabled={control.isGenerating || !control.hasInputImage()}
+        >
+          {control.isGenerating ? 'Upscaling...' : 'Upscale'}
+        </button>
+      </div>
+      {control.image && (
+        <div className="control__row">
+          <img className="control__image" src={control.image.dataUrl} alt="Generated" />
+          {control.image.fileName && <div className="control__image-name">{control.image.fileName}</div>}
         </div>
       )}
     </div>

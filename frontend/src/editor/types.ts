@@ -45,6 +45,7 @@ export type NodeKind =
   | 'saveModel'
   | 'saveImage'
   | 'refineDetailGen3d'
+  | 'upscaleImage'
 
 export interface NodeCatalogEntry {
   kind: NodeKind
@@ -71,6 +72,7 @@ export interface SerializedNodeState {
   hunyuanTexture?: HunyuanTextureSerializedState
   removeBg?: RemoveBgSerializedState
   detailGen3d?: DetailGenSerializedState
+  upscale?: UpscaleSerializedState
 }
 
 export interface SerializedNode {
@@ -198,4 +200,23 @@ export interface DetailGenSerializedState {
   modelBase64?: string
   modelMimeType?: string
   modelFileName?: string
+}
+
+export interface UpscaleParams {
+  unloadModelAfterGeneration: boolean
+  useRepoVenv: boolean
+  // Upscale specific settings
+  targetResolution: number // e.g. 2048
+  tileSize: number // for tiled upscaling, e.g. 512
+  noiseLevel: number // denoise strength 0-1
+  scale: number // upscale multiplier e.g. 2
+}
+
+export interface UpscaleSerializedState {
+  params: UpscaleParams
+  imageBase64?: string
+  imageMimeType?: string
+  imageFileName?: string
+  width?: number
+  height?: number
 }
