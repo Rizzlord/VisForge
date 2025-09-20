@@ -71,8 +71,17 @@ class HunyuanService:
             timeout=PROCESS_TIMEOUT,
         )
 
+        # Log stderr output to Python logs
+        from .main import add_python_log
+        if stderr:
+            stderr_text = stderr.decode("utf-8", errors="ignore")
+            for line in stderr_text.split('\n'):
+                if line.strip():
+                    add_python_log("INFO", f"[hunyuan] {line.strip()}", "hunyuan3d")
+
         if process.returncode != 0:
             detail = stderr.decode("utf-8", errors="ignore") or "Hunyuan worker failed"
+            add_python_log("ERROR", f"[hunyuan] Worker failed: {detail}", "hunyuan3d")
             raise RuntimeError(detail)
 
         response = json.loads(stdout.decode("utf-8"))

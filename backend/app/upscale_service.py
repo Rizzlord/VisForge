@@ -34,11 +34,16 @@ class UpscaleService:
         return self._lock
 
     async def _log_stream(self, stream: asyncio.StreamReader, prefix: str) -> None:
+        from .main import add_python_log
         while True:
             line = await stream.readline()
             if not line:
                 break
-            logger.info("[%s] %s", prefix, line.decode("utf-8", errors="ignore").rstrip())
+            message = line.decode("utf-8", errors="ignore").rstrip()
+            # Log to backend logger
+            logger.info("[%s] %s", prefix, message)
+            # Also store in Python logs
+            add_python_log("INFO", f"[{prefix}] {message}", "upscale")
 
     def _serialize_request(
         self,

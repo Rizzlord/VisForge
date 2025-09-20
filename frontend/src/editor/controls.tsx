@@ -882,7 +882,7 @@ export class UpscaleGenerationControl extends ReactiveControl {
 
       if (!response.ok) {
         const detail = await response.text()
-        throw new Error(detail || 'Failed to generate model')
+        throw new Error(detail || 'Failed to upscale image')
       }
 
       const payload = await response.json()
@@ -897,11 +897,13 @@ export class UpscaleGenerationControl extends ReactiveControl {
         width: payload.width,
         height: payload.height,
       }
+      
+      this.isGenerating = false
+      this.notify()
       onGraphChange()
     } catch (error) {
-      this.error = error instanceof Error ? error.message : 'Failed to upscale image'
-    } finally {
       this.isGenerating = false
+      this.error = error instanceof Error ? error.message : 'Failed to upscale image'
       this.notify()
     }
   }
@@ -1611,91 +1613,77 @@ export function UpscaleGenerationControlView(props: {
   const [, forceUpdate] = useState(0)
   useEffect(() => control.subscribe(() => forceUpdate((v) => v + 1)), [control])
 
+  const params = control.params
+  const disableGenerate = control.isGenerating || !control.hasInputImage()
+
   return (
-    <div className="control">
-      <div className="control__row">
+    <div className={`control-block${control.isGenerating ? ' generating' : ''}`}>
+      {control.error && <div className="control-error">{control.error}</div>}
+      {!control.hasInputImage() && <div className="control-hint">Connect an image input to enable upscaling.</div>}
+      <div className="tripo-grid">
         <label>
+          Target Resolution
+          <input
+            type="number"
+            value={params.targetResolution}
+            onChange={(e) => control.updateParam('targetResolution', Number(e.target.value) || 0)}
+            min={1}
+            step={1}
+          />
+        </label>
+        <label>
+          Tile Size
+          <input
+            type="number"
+            value={params.tileSize}
+            onChange={(e) => control.updateParam('tileSize', Number(e.target.value) || 0)}
+            min={1}
+            step={1}
+          />
+        </label>
+        <label>
+          Denoise (0-1)
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={params.noiseLevel}
+            onChange={(e) => control.updateParam('noiseLevel', Number(e.target.value))}
+          />
+          <span>{params.noiseLevel.toFixed(2)}</span>
+        </label>
+        <label>
+          Scale
+          <select value={params.scale} onChange={(e) => control.updateParam('scale', Number(e.target.value))}>
+            <option value={1}>1x</option>
+            <option value={2}>2x</option>
+            <option value={4}>4x</option>
+          </select>
+        </label>
+        <label className="checkbox">
           <input
             type="checkbox"
-            checked={control.params.unloadModelAfterGeneration}
+            checked={params.unloadModelAfterGeneration}
             onChange={(event) => control.updateParam('unloadModelAfterGeneration', event.target.checked)}
           />
-          Unload model
+          Unload model after generation
         </label>
-      </div>
-      <div className="control__row">
-        <label>
+        <label className="checkbox">
           <input
             type="checkbox"
-            checked={control.params.useRepoVenv}
+            checked={params.useRepoVenv}
             onChange={(event) => control.updateParam('useRepoVenv', event.target.checked)}
           />
-          Use repo venv
+          Use repo virtual environment
         </label>
       </div>
-          <div className="control__row">
-            <label>
-              Target resolution
-              <input
-                type="number"
-                value={control.params.targetResolution}
-                onChange={(e) => control.updateParam('targetResolution', Number(e.target.value) || 0)}
-                min={1}
-                step={1}
-              />
-            </label>
-          </div>
-          <div className="control__row">
-            <label>
-              Tile size
-              <input
-                type="number"
-                value={control.params.tileSize}
-                onChange={(e) => control.updateParam('tileSize', Number(e.target.value) || 0)}
-                min={1}
-                step={1}
-              />
-            </label>
-          </div>
-          <div className="control__row">
-            <label>
-              Denoise (0-1)
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={control.params.noiseLevel}
-                onChange={(e) => control.updateParam('noiseLevel', Number(e.target.value))}
-              />
-              <span>{control.params.noiseLevel.toFixed(2)}</span>
-            </label>
-          </div>
-          <div className="control__row">
-            <label>
-              Scale
-              <select value={control.params.scale} onChange={(e) => control.updateParam('scale', Number(e.target.value))}>
-                <option value={1}>1x</option>
-                <option value={2}>2x</option>
-                <option value={4}>4x</option>
-              </select>
-            </label>
-          </div>
-      {control.error && <div className="control__error">{control.error}</div>}
-      <div className="control__row">
-        <button
-          type="button"
-          className="control__button"
-          onClick={() => void control.generate(onGraphChange)}
-          disabled={control.isGenerating || !control.hasInputImage()}
-        >
-          {control.isGenerating ? 'Upscaling...' : 'Upscale'}
-        </button>
-      </div>
+      <button type="button" onClick={() => void control.generate(onGraphChange)} disabled={disableGenerate}>
+        {control.isGenerating ? 'Upscaling…' : 'Upscale'}
+      </button>
       {control.image && (
-        <div className="control__row">
-          <img className="control__image" src={control.image.dataUrl} alt="Generated" />
-          {control.image.fileName && <div className="control__image-name">{control.image.fileName}</div>}
+        <div className="control-hint">
+          Ready: {control.image.fileName ?? 'upscaled.png'}
         </div>
       )}
     </div>

@@ -80,8 +80,17 @@ class TripoSGService:
             timeout=PROCESS_TIMEOUT,
         )
 
+        # Log stderr output to Python logs
+        from .main import add_python_log
+        if stderr:
+            stderr_text = stderr.decode('utf-8', errors='ignore')
+            for line in stderr_text.split('\n'):
+                if line.strip():
+                    add_python_log("INFO", f"[tripo] {line.strip()}", "triposg")
+
         if process.returncode != 0:
             detail = stderr.decode('utf-8', errors='ignore') or 'Tripo worker failed'
+            add_python_log("ERROR", f"[tripo] Worker failed: {detail}", "triposg")
             raise RuntimeError(detail)
 
         response = json.loads(stdout.decode('utf-8'))

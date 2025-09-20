@@ -36,6 +36,14 @@ interface BackendLogEntry {
   created: number
 }
 
+interface PythonLogEntry {
+  id: number
+  level: string
+  message: string
+  created: number
+  source: 'python' | 'pipeline'
+}
+
 const LOCAL_WORKFLOWS_KEY = 'visforge.workflows'
 const LOCAL_ACTIVE_KEY = 'visforge.activeWorkflowId'
 const LOG_POLL_INTERVAL = 2000
@@ -146,12 +154,15 @@ function App() {
   const [isPersisting, setPersisting] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [logs, setLogs] = useState<BackendLogEntry[]>([])
+  const [pythonLogs, setPythonLogs] = useState<PythonLogEntry[]>([])
+  const [showPythonLogs, setShowPythonLogs] = useState(true)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const mountedRef = useRef(true)
   const bootstrappedRef = useRef(false)
   const logTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const latestLogIdRef = useRef(0)
+  const latestPythonLogIdRef = useRef(0)
   const logsBodyRef = useRef<HTMLDivElement | null>(null)
   const [isLogsAutoScroll, setLogsAutoScroll] = useState(true)
 
@@ -471,7 +482,9 @@ function App() {
 
   const handleClearLogs = useCallback(() => {
     latestLogIdRef.current = 0
+    latestPythonLogIdRef.current = 0
     setLogs([])
+    setPythonLogs([])
   }, [])
 
   useEffect(() => {
@@ -513,17 +526,36 @@ function App() {
 
     const fetchLogs = async () => {
       try {
+        // Fetch backend logs
         const response = await fetch(`${BACKEND_BASE}/logs?since=${latestLogIdRef.current}`)
-        if (!response.ok) return
-        const data = (await response.json()) as { logs?: BackendLogEntry[]; latest?: number }
-        if (!isActive) return
-        const newLogs = Array.isArray(data.logs) ? data.logs : []
-        if (newLogs.length) {
-          latestLogIdRef.current = data.latest ?? latestLogIdRef.current
-          setLogs((prev) => {
-            const combined = [...prev, ...newLogs]
-            return combined.slice(-1000)
-          })
+        if (response.ok) {
+          const data = (await response.json()) as { logs?: BackendLogEntry[]; latest?: number }
+          if (isActive) {
+            const newLogs = Array.isArray(data.logs) ? data.logs : []
+            if (newLogs.length) {
+              latestLogIdRef.current = data.latest ?? latestLogIdRef.current
+              setLogs((prev) => {
+                const combined = [...prev, ...newLogs]
+                return combined.slice(-1000)
+              })
+            }
+          }
+        }
+
+        // Fetch Python/pipeline logs
+        const pythonResponse = await fetch(`${BACKEND_BASE}/logs/python?since=${latestPythonLogIdRef.current}`)
+        if (pythonResponse.ok) {
+          const pythonData = (await pythonResponse.json()) as { logs?: PythonLogEntry[]; latest?: number }
+          if (isActive) {
+            const newPythonLogs = Array.isArray(pythonData.logs) ? pythonData.logs : []
+            if (newPythonLogs.length) {
+              latestPythonLogIdRef.current = pythonData.latest ?? latestPythonLogIdRef.current
+              setPythonLogs((prev) => {
+                const combined = [...prev, ...newPythonLogs]
+                return combined.slice(-1000)
+              })
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to fetch logs', error)
@@ -565,7 +597,23 @@ function App() {
     const body = logsBodyRef.current
     if (!body) return
     body.scrollTop = body.scrollHeight
-  }, [logs, showLogs, isLogsAutoScroll])
+  }, [logs, pythonLogs, showLogs, isLogsAutoScroll])
+
+  // Combine and sort all logs by timestamp
+  const allLogs = useMemo(() => {
+    const combined: Array<BackendLogEntry | PythonLogEntry> = []
+    
+    // Add backend logs
+    combined.push(...logs)
+    
+    // Add Python logs if enabled
+    if (showPythonLogs) {
+      combined.push(...pythonLogs)
+    }
+    
+    // Sort by creation time
+    return combined.sort((a, b) => a.created - b.created)
+  }, [logs, pythonLogs, showPythonLogs])
 
   const formatLogTime = useCallback((timestamp: number) => {
     try {
@@ -574,6 +622,10 @@ function App() {
       return ''
     }
   }, [])
+
+  const isPythonLog = (log: BackendLogEntry | PythonLogEntry): log is PythonLogEntry => {
+    return 'source' in log
+  }
 
   return (
     <div className="app-shell">
@@ -687,25 +739,42 @@ function App() {
         </section>
         <aside className={`logs-pane${showLogs ? ' open' : ''}`} aria-hidden={!showLogs}>
           <div className="logs-pane__header">
-            <h2>Generator Logs</h2>
-            <div className="logs-pane__actions">
-              <button type="button" onClick={handleClearLogs} disabled={!logs.length}>
-                Clear
-              </button>
+            <h2>Console Logs</h2>
+            <div className="logs-pane__controls">
+              <label className="logs-checkbox">
+                <input
+                  type="checkbox"
+                  checked={showPythonLogs}
+                  onChange={(e) => setShowPythonLogs(e.target.checked)}
+                />
+                Python Logs
+              </label>
+              <div className="logs-pane__actions">
+                <button type="button" onClick={handleClearLogs} disabled={!allLogs.length}>
+                  Clear
+                </button>
+              </div>
             </div>
           </div>
           <div className="logs-pane__body" ref={logsBodyRef}>
-            {logs.length ? (
-              logs.map((entry) => (
-                <div key={entry.id} className={`logs-entry logs-entry--${entry.level.toLowerCase()}`}>
-                  <div className="logs-entry__meta">
-                    <span className="logs-entry__time">{formatLogTime(entry.created)}</span>
-                    <span className="logs-entry__level">{entry.level}</span>
-                    <span className="logs-entry__logger">{entry.logger}</span>
+            {allLogs.length ? (
+              allLogs.map((entry, index) => {
+                const key = isPythonLog(entry) ? `python-${entry.id}` : `backend-${entry.id}`
+                return (
+                  <div key={key} className={`logs-entry logs-entry--${entry.level.toLowerCase()}`}>
+                    <div className="logs-entry__meta">
+                      <span className="logs-entry__time">{formatLogTime(entry.created)}</span>
+                      <span className="logs-entry__level">{entry.level}</span>
+                      {isPythonLog(entry) ? (
+                        <span className="logs-entry__logger">{entry.source}</span>
+                      ) : (
+                        <span className="logs-entry__logger">{entry.logger}</span>
+                      )}
+                    </div>
+                    <div className="logs-entry__message">{entry.message}</div>
                   </div>
-                  <div className="logs-entry__message">{entry.message}</div>
-                </div>
-              ))
+                )
+              })
             ) : (
               <p className="logs-pane__empty">Logs will appear here while generators run.</p>
             )}

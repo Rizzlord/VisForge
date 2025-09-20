@@ -343,6 +343,7 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
   let scheduleEvaluation: () => void = () => {}
   let removeNodeById: (id: string) => Promise<void> = async () => {}
 
+  // Configure react render presets before using plugins
   reactRender.addPreset(
     ReactPresets.classic.setup({
       customize: {
@@ -383,9 +384,10 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
 
   connection.addPreset(ConnectionPresets.classic.setup())
 
+  // Use plugins in the correct order for rete v2
   editor.use(area)
+  area.use(connection) 
   area.use(reactRender)
-  area.use(connection)
 
   const setOutputs = useGraphStore.getState().setOutputs
 

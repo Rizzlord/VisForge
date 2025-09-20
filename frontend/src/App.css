@@ -166,9 +166,8 @@
 
 .logs-pane__header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
@@ -178,6 +177,28 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(255, 185, 120, 0.85);
+}
+
+.logs-pane__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.logs-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: rgba(236, 236, 236, 0.88);
+  cursor: pointer;
+}
+
+.logs-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #ff8c32;
 }
 
 .logs-pane__actions button {
