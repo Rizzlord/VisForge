@@ -61,10 +61,10 @@ class TripoSGService:
 
         python_executable = self._resolve_python(params.use_repo_venv)
 
-        cmd = [
-            python_executable,
-            str(Path(__file__).resolve().parent / 'tripo_worker.py'),
-        ]
+        # Create unbuffered command for real-time output
+        from .main import SubprocessLogger
+        cmd = [python_executable, str(Path(__file__).resolve().parent / 'tripo_worker.py')]
+        cmd = SubprocessLogger.create_unbuffered_process_args(cmd)
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -75,23 +75,26 @@ class TripoSGService:
 
         assert process.stdin and process.stdout
 
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(input=request_json.encode('utf-8')),
-            timeout=PROCESS_TIMEOUT,
+        # Send input and close stdin
+        process.stdin.write(request_json.encode('utf-8'))
+        await process.stdin.drain()
+        process.stdin.close()
+
+        # Start streaming stderr in real-time
+        stderr_task = asyncio.create_task(
+            SubprocessLogger.log_stream(process.stderr, "TripoSG", "generation")
         )
 
-        # Log stderr output to Python logs
-        from .main import add_python_log
-        if stderr:
-            stderr_text = stderr.decode('utf-8', errors='ignore')
-            for line in stderr_text.split('\n'):
-                if line.strip():
-                    add_python_log("INFO", f"[tripo] {line.strip()}", "triposg")
+        # Read stdout and wait for process completion
+        try:
+            stdout = await asyncio.wait_for(process.stdout.read(), timeout=PROCESS_TIMEOUT)
+            await asyncio.wait_for(process.wait(), timeout=1)
+        finally:
+            await stderr_task
 
         if process.returncode != 0:
-            detail = stderr.decode('utf-8', errors='ignore') or 'Tripo worker failed'
-            add_python_log("ERROR", f"[tripo] Worker failed: {detail}", "triposg")
-            raise RuntimeError(detail)
+            SubprocessLogger.log_error("TripoSG", "generation", f"Worker failed with return code {process.returncode}")
+            raise RuntimeError(f"TripoSG worker failed with return code {process.returncode}")
 
         response = json.loads(stdout.decode('utf-8'))
         if 'glb_base64' not in response:

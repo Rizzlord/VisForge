@@ -16,6 +16,16 @@ from torchvision import transforms
 
 logger = logging.getLogger(__name__)
 
+# Import centralized logging
+try:
+    from .main import SubprocessLogger
+except ImportError:
+    # Fallback for direct execution
+    class SubprocessLogger:
+        @staticmethod
+        def log_error(prefix: str, source: str, error_msg: str) -> None:
+            logger.error(f"[{prefix}] {source}: {error_msg}")
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT / "repos" / "RMBG-2.0"
 WEIGHTS_PATH = REPO_ROOT / "rmbg" / "model.safetensors"
@@ -55,31 +65,44 @@ class RMBGService:
                 return self._model
 
             if not WEIGHTS_PATH.exists():
-                raise FileNotFoundError(f"RMBG weights not found at {WEIGHTS_PATH}")
+                error_msg = f"RMBG weights not found at {WEIGHTS_PATH}"
+                SubprocessLogger.log_error("RMBG", "model_loading", error_msg)
+                raise FileNotFoundError(error_msg)
 
-            _ensure_repo_on_path()
-            from BiRefNet_config import BiRefNetConfig  # type: ignore
-            from birefnet import BiRefNet  # type: ignore
-            from safetensors.torch import load_file  # type: ignore
+            try:
+                _ensure_repo_on_path()
+                from BiRefNet_config import BiRefNetConfig  # type: ignore
+                from birefnet import BiRefNet  # type: ignore
+                from safetensors.torch import load_file  # type: ignore
 
-            config = BiRefNetConfig(bb_pretrained=False)
-            model = BiRefNet(bb_pretrained=False, config=config)
+                logger.info("Loading RMBG model...")
+                config = BiRefNetConfig(bb_pretrained=False)
+                model = BiRefNet(bb_pretrained=False, config=config)
 
-            state_dict = load_file(str(WEIGHTS_PATH))
-            # Handle common prefixes such as 'module.' from DataParallel checkpoints
-            cleaned_state_dict = {self._strip_prefix(k): v for k, v in state_dict.items()}
+                state_dict = load_file(str(WEIGHTS_PATH))
+                # Handle common prefixes such as 'module.' from DataParallel checkpoints
+                cleaned_state_dict = {self._strip_prefix(k): v for k, v in state_dict.items()}
 
-            missing, unexpected = model.load_state_dict(cleaned_state_dict, strict=False)
-            if missing:
-                logger.warning("RMBG model missing expected keys: %s", missing)
-            if unexpected:
-                logger.warning("RMBG model encountered unexpected keys: %s", unexpected)
+                missing, unexpected = model.load_state_dict(cleaned_state_dict, strict=False)
+                if missing:
+                    warning_msg = f"RMBG model missing expected keys: {missing}"
+                    logger.warning(warning_msg)
+                    SubprocessLogger.log_error("RMBG", "model_loading", f"Missing keys: {missing}")
+                if unexpected:
+                    warning_msg = f"RMBG model encountered unexpected keys: {unexpected}"
+                    logger.warning(warning_msg)
+                    SubprocessLogger.log_error("RMBG", "model_loading", f"Unexpected keys: {unexpected}")
 
-            model.eval()
-            model.to(self._device, dtype=self._dtype)
+                model.eval()
+                model.to(self._device, dtype=self._dtype)
+                logger.info(f"RMBG model loaded successfully on {self._device}")
 
-            self._model = model
-            return model
+                self._model = model
+                return model
+            except Exception as e:
+                error_msg = f"Failed to load RMBG model: {str(e)}"
+                SubprocessLogger.log_error("RMBG", "model_loading", error_msg)
+                raise
 
     @staticmethod
     def _strip_prefix(key: str) -> str:
@@ -89,44 +112,52 @@ class RMBGService:
         return key
 
     def remove_background(self, image: Image.Image, unload_model: bool = False) -> Image.Image:
-        model = self._load_model()
+        try:
+            logger.info(f"Starting background removal for image {image.size}")
+            model = self._load_model()
 
-        original_size = image.size  # (width, height)
-        rgb_image = image.convert("RGB")
-        tensor = self._transform(rgb_image).unsqueeze(0)
-        tensor = tensor.to(self._device, dtype=self._dtype)
+            original_size = image.size  # (width, height)
+            rgb_image = image.convert("RGB")
+            tensor = self._transform(rgb_image).unsqueeze(0)
+            tensor = tensor.to(self._device, dtype=self._dtype)
 
-        with torch.no_grad():
-            outputs = model(tensor)
+            with torch.no_grad():
+                outputs = model(tensor)
 
-        logits = outputs
-        if isinstance(logits, (list, tuple)):
-            logits = logits[-1]
-        if isinstance(logits, (list, tuple)):
-            logits = logits[-1]
+            logits = outputs
+            if isinstance(logits, (list, tuple)):
+                logits = logits[-1]
+            if isinstance(logits, (list, tuple)):
+                logits = logits[-1]
 
-        if logits.ndim == 3:
-            logits = logits.unsqueeze(0)
+            if logits.ndim == 3:
+                logits = logits.unsqueeze(0)
 
-        mask = torch.sigmoid(logits)
-        mask = F.interpolate(
-            mask,
-            size=(original_size[1], original_size[0]),
-            mode="bilinear",
-            align_corners=False,
-        )
-        mask = mask[0, 0].clamp_(0, 1)
+            mask = torch.sigmoid(logits)
+            mask = F.interpolate(
+                mask,
+                size=(original_size[1], original_size[0]),
+                mode="bilinear",
+                align_corners=False,
+            )
+            mask = mask[0, 0].clamp_(0, 1)
 
-        alpha = (mask * 255).to(torch.uint8).cpu().numpy()
-        alpha_image = Image.fromarray(alpha, mode="L")
+            alpha = (mask * 255).to(torch.uint8).cpu().numpy()
+            alpha_image = Image.fromarray(alpha, mode="L")
 
-        rgba_image = rgb_image.convert("RGBA")
-        rgba_image.putalpha(alpha_image)
+            rgba_image = rgb_image.convert("RGBA")
+            rgba_image.putalpha(alpha_image)
 
-        if unload_model:
-            self.unload_model()
+            logger.info(f"Background removal completed for image {original_size}")
 
-        return rgba_image
+            if unload_model:
+                self.unload_model()
+
+            return rgba_image
+        except Exception as e:
+            error_msg = f"Background removal failed: {str(e)}"
+            SubprocessLogger.log_error("RMBG", "background_removal", error_msg)
+            raise
 
     def unload_model(self) -> None:
         with self._model_lock:

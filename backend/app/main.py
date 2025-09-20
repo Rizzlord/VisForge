@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import sys
+import time
 from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Literal, Optional
@@ -35,6 +36,97 @@ LOG_COUNTER = 0
 PYTHON_LOG_BUFFER: deque[dict[str, Any]] = deque(maxlen=1000)
 PYTHON_LOG_LOCK = Lock()
 PYTHON_LOG_COUNTER = 0
+
+
+def add_python_log(level: str, message: str, source: str) -> None:
+    """Add a Python subprocess log entry to the Python log buffer"""
+    global PYTHON_LOG_COUNTER
+    with PYTHON_LOG_LOCK:
+        PYTHON_LOG_COUNTER += 1
+        PYTHON_LOG_BUFFER.append(
+            {
+                "id": PYTHON_LOG_COUNTER,
+                "level": level,
+                "message": message,
+                "source": source,
+                "created": int(time.time()),
+            }
+        )
+
+
+# Global subprocess logging system
+class SubprocessLogger:
+    """Automatically captures all subprocess stderr/stdout"""
+    
+    @staticmethod
+    async def log_stream(stream: asyncio.StreamReader, prefix: str, source: str) -> None:
+        """Log stream output to Python logs"""
+        try:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                message = line.decode("utf-8", errors="ignore").rstrip()
+                if message.strip():
+                    add_python_log("INFO", f"[{prefix}] {message}", source)
+        except Exception as e:
+            add_python_log("ERROR", f"[{prefix}] Stream logging error: {e}", source)
+    
+    @staticmethod
+    async def log_both_streams(stdout: asyncio.StreamReader, stderr: asyncio.StreamReader, prefix: str, source: str) -> None:
+        """Log both stdout and stderr streams in real-time"""
+        async def log_stream_with_level(stream: asyncio.StreamReader, is_stderr: bool):
+            try:
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    message = line.decode("utf-8", errors="ignore").rstrip()
+                    if message.strip():
+                        # Determine log level based on content and stream type
+                        level = "INFO"
+                        lower_msg = message.lower()
+                        if is_stderr or "error" in lower_msg or "exception" in lower_msg or "traceback" in lower_msg:
+                            level = "ERROR"
+                        elif "warning" in lower_msg or "warn" in lower_msg:
+                            level = "WARNING"
+                        
+                        add_python_log(level, f"[{prefix}] {message}", source)
+            except Exception as e:
+                add_python_log("ERROR", f"[{prefix}] Stream logging error: {e}", source)
+        
+        # Log both streams concurrently for real-time output
+        await asyncio.gather(
+            log_stream_with_level(stdout, False),
+            log_stream_with_level(stderr, True),
+            return_exceptions=True
+        )
+    
+    @staticmethod
+    def log_stderr_text(stderr: bytes, prefix: str, source: str) -> None:
+        """Log stderr text to Python logs"""
+        if stderr:
+            stderr_text = stderr.decode('utf-8', errors='ignore')
+            for line in stderr_text.split('\n'):
+                if line.strip():
+                    add_python_log("INFO", f"[{prefix}] {line.strip()}", source)
+    
+    @staticmethod
+    def log_error(prefix: str, source: str, error_msg: str) -> None:
+        """Log error to Python logs"""
+        add_python_log("ERROR", f"[{prefix}] {error_msg}", source)
+    
+    @staticmethod
+    def create_unbuffered_process_args(cmd: list[str]) -> list[str]:
+        """Create process arguments with unbuffered output for real-time streaming"""
+        if cmd and cmd[0] == "python":
+            # Add -u flag for unbuffered output
+            return [cmd[0], "-u"] + cmd[1:]
+        return cmd
+
+
+# Global subprocess logger instance
+subprocess_logger = SubprocessLogger()
 
 
 class InMemoryLogHandler(logging.Handler):
@@ -282,23 +374,6 @@ async def get_logs(since: int = 0) -> Dict[str, Any]:
         entries = [entry for entry in LOG_BUFFER if entry["id"] > since]
         latest = LOG_BUFFER[-1]["id"] if LOG_BUFFER else since
     return {"logs": entries, "latest": latest}
-
-
-def add_python_log(level: str, message: str, source: str) -> None:
-    """Add a Python subprocess log entry to the Python log buffer"""
-    global PYTHON_LOG_COUNTER
-    import time
-    with PYTHON_LOG_LOCK:
-        PYTHON_LOG_COUNTER += 1
-        PYTHON_LOG_BUFFER.append(
-            {
-                "id": PYTHON_LOG_COUNTER,
-                "level": level,
-                "message": message,
-                "source": source,
-                "created": int(time.time()),
-            }
-        )
 
 
 @app.get("/logs/python")
@@ -751,15 +826,11 @@ async def _process_background_with_worker(request: RemoveBackgroundRequest) -> R
     stdout, stderr = await process.communicate(json.dumps(payload).encode('utf-8'))
 
     # Log stderr output to Python logs
-    if stderr:
-        stderr_text = stderr.decode('utf-8', errors='ignore')
-        for line in stderr_text.split('\n'):
-            if line.strip():
-                add_python_log("INFO", f"[rmbg] {line.strip()}", "rmbg")
+    subprocess_logger.log_stderr_text(stderr, "rmbg", "rmbg")
 
     if process.returncode != 0:
         detail = stderr.decode('utf-8', errors='ignore') or 'Background removal worker failed'
-        add_python_log("ERROR", f"[rmbg] Worker failed: {detail}", "rmbg")
+        subprocess_logger.log_error("rmbg", "rmbg", f"Worker failed: {detail}")
         raise RuntimeError(detail)
 
     response_payload = json.loads(stdout.decode('utf-8'))

@@ -45,18 +45,6 @@ class HunyuanTextureService:
     def lock(self) -> asyncio.Lock:
         return self._lock
 
-    async def _log_stream(self, stream: asyncio.StreamReader, prefix: str) -> None:
-        from .main import add_python_log
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            message = line.decode("utf-8", errors="ignore").rstrip()
-            # Log to backend logger
-            logger.info("[%s] %s", prefix, message)
-            # Also store in Python logs
-            add_python_log("INFO", f"[{prefix}] {message}", "hunyuan-texture")
-
     def _serialize_request(
         self,
         model_base64: str,
@@ -81,10 +69,10 @@ class HunyuanTextureService:
 
         python_executable = self._resolve_python(params.use_repo_venv)
 
-        cmd = [
-            python_executable,
-            str(Path(__file__).resolve().parent / "hunyuan_texture_worker.py"),
-        ]
+        # Create unbuffered command for real-time output
+        from .main import SubprocessLogger
+        cmd = [python_executable, str(Path(__file__).resolve().parent / "hunyuan_texture_worker.py")]
+        cmd = SubprocessLogger.create_unbuffered_process_args(cmd)
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -99,7 +87,10 @@ class HunyuanTextureService:
         await process.stdin.drain()
         process.stdin.close()
 
-        stderr_task = asyncio.create_task(self._log_stream(process.stderr, "hunyuan-texture"))
+        # Use centralized real-time stderr logging
+        stderr_task = asyncio.create_task(
+            SubprocessLogger.log_stream(process.stderr, "HunyuanTexture", "generation")
+        )
 
         try:
             stdout = await asyncio.wait_for(process.stdout.read(), timeout=PROCESS_TIMEOUT)
@@ -108,8 +99,8 @@ class HunyuanTextureService:
             await stderr_task
 
         if process.returncode != 0:
-            detail = "Hunyuan texture worker failed"
-            raise RuntimeError(detail)
+            SubprocessLogger.log_error("HunyuanTexture", "generation", f"Worker failed with return code {process.returncode}")
+            raise RuntimeError("Hunyuan texture worker failed")
 
         response = json.loads(stdout.decode("utf-8"))
         required_keys = {"glb_base64", "albedo_base64", "rm_base64"}

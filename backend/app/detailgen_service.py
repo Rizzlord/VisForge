@@ -50,9 +50,13 @@ class DetailGen3DService:
         python_executable = self._resolve_python(params.use_repo_venv)
         worker_path = Path(__file__).resolve().parent / "detailgen_worker.py"
 
+        # Create unbuffered command for real-time output
+        from .main import SubprocessLogger
+        cmd = [python_executable, str(worker_path)]
+        cmd = SubprocessLogger.create_unbuffered_process_args(cmd)
+
         process = await asyncio.create_subprocess_exec(
-            python_executable,
-            str(worker_path),
+            *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -60,23 +64,26 @@ class DetailGen3DService:
 
         assert process.stdin and process.stdout
 
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(input=request_json.encode("utf-8")),
-            timeout=PROCESS_TIMEOUT,
+        # Send input and close stdin
+        process.stdin.write(request_json.encode("utf-8"))
+        await process.stdin.drain()
+        process.stdin.close()
+
+        # Start streaming stderr in real-time
+        stderr_task = asyncio.create_task(
+            SubprocessLogger.log_stream(process.stderr, "DetailGen3D", "refinement")
         )
 
-        # Log stderr output to Python logs
-        from .main import add_python_log
-        if stderr:
-            stderr_text = stderr.decode("utf-8", errors="ignore")
-            for line in stderr_text.split('\n'):
-                if line.strip():
-                    add_python_log("INFO", f"[detailgen] {line.strip()}", "detailgen3d")
+        # Read stdout and wait for process completion
+        try:
+            stdout = await asyncio.wait_for(process.stdout.read(), timeout=PROCESS_TIMEOUT)
+            await asyncio.wait_for(process.wait(), timeout=1)
+        finally:
+            await stderr_task
 
         if process.returncode != 0:
-            detail = stderr.decode("utf-8", errors="ignore") or "DetailGen3D worker failed"
-            add_python_log("ERROR", f"[detailgen] Worker failed: {detail}", "detailgen3d")
-            raise RuntimeError(detail)
+            SubprocessLogger.log_error("DetailGen3D", "refinement", f"Worker failed with return code {process.returncode}")
+            raise RuntimeError(f"DetailGen3D worker failed with return code {process.returncode}")
 
         response = json.loads(stdout.decode("utf-8"))
         if "glb_base64" not in response:

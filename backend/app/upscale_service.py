@@ -33,18 +33,6 @@ class UpscaleService:
     def lock(self) -> asyncio.Lock:
         return self._lock
 
-    async def _log_stream(self, stream: asyncio.StreamReader, prefix: str) -> None:
-        from .main import add_python_log
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            message = line.decode("utf-8", errors="ignore").rstrip()
-            # Log to backend logger
-            logger.info("[%s] %s", prefix, message)
-            # Also store in Python logs
-            add_python_log("INFO", f"[{prefix}] {message}", "upscale")
-
     def _serialize_request(
         self,
         image_data_url: str,
@@ -66,10 +54,10 @@ class UpscaleService:
 
         python_executable = self._resolve_python(params.use_repo_venv)
 
-        cmd = [
-            python_executable,
-            str(Path(__file__).resolve().parent / "upscale_worker.py"),
-        ]
+        # Create unbuffered command for real-time output
+        from .main import SubprocessLogger
+        cmd = [python_executable, str(Path(__file__).resolve().parent / "upscale_worker.py")]
+        cmd = SubprocessLogger.create_unbuffered_process_args(cmd)
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -84,7 +72,10 @@ class UpscaleService:
         await process.stdin.drain()
         process.stdin.close()
 
-        stderr_task = asyncio.create_task(self._log_stream(process.stderr, "upscale"))
+        # Use centralized real-time stderr logging
+        stderr_task = asyncio.create_task(
+            SubprocessLogger.log_stream(process.stderr, "Upscale", "generation")
+        )
 
         try:
             stdout = await asyncio.wait_for(process.stdout.read(), timeout=PROCESS_TIMEOUT)
@@ -93,8 +84,8 @@ class UpscaleService:
             await stderr_task
 
         if process.returncode != 0:
-            detail = "Upscale worker failed"
-            raise RuntimeError(detail)
+            SubprocessLogger.log_error("Upscale", "generation", f"Worker failed with return code {process.returncode}")
+            raise RuntimeError("Upscale worker failed")
 
         response = json.loads(stdout.decode("utf-8"))
         required_keys = {"image_base64"}
