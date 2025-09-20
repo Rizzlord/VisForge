@@ -34,6 +34,19 @@ def ensure_paths(paths: list[str]) -> None:
             sys.path.insert(0, path)
 
 
+def apply_torchvision_fix(repo_root: Path) -> None:
+    """Apply torchvision compatibility fix using Hunyuan's fix"""
+    try:
+        ensure_paths([str(repo_root)])
+        from torchvision_fix import apply_fix  # type: ignore
+        apply_fix()
+        logger.info("Applied torchvision compatibility fix")
+    except ImportError:
+        logger.warning("torchvision_fix module not found, proceeding without compatibility fix")
+    except Exception as e:
+        logger.warning("Failed to apply torchvision fix: %s", e)
+
+
 def configure_caches(weights_root: Path) -> None:
     cache_dir = weights_root / "hf_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +92,9 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     configure_caches(weights_root)
     # Add Hunyuan3D-2.1 to path to import realesrgan
     ensure_paths([str(repo_root.parent / "Hunyuan3D-2.1"), str(repo_root.parent / "Hunyuan3D-2.1" / "hy3dpaint"), str(repo_root.parent / "Hunyuan3D-2.1" / "hy3dpaint" / "hunyuanpaintpbr"), str(repo_root.parent / "Hunyuan3D-2.1" / "hy3dshape")])
+
+    # Apply torchvision fix before importing RealESRGAN
+    apply_torchvision_fix(repo_root.parent / "Hunyuan3D-2.1")
 
     realesrgan_path = ensure_realesrgan(weights_root)
 
