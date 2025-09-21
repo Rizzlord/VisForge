@@ -35,6 +35,8 @@ import {
   SaveImageControlView,
   UpscaleGenerationControl,
   UpscaleGenerationControlView,
+  ApplyMaterialControl,
+  ExtractMaterialControl,
 } from './controls'
 import { useGraphStore } from './store'
 import type {
@@ -52,7 +54,7 @@ import type {
   SerializedNodeState,
   SerializedWorkflow,
 } from './types'
-import { combineChannels, separateChannels } from './imageUtils'
+import { combineChannels, separateChannels, extractChannelAsImage, imageToChannel, extractMaterialMapsFromGLB, applyMaterialMapsToGLB } from './imageUtils'
 
 export type Schemes = GetSchemes<ClassicPreset.Node, ClassicPreset.Connection<ClassicPreset.Node, ClassicPreset.Node>>
 export type AreaExtra = ReactArea2D<Schemes>
@@ -101,10 +103,10 @@ class SeparateChannelsNode extends FoldableNode {
   constructor() {
     super('Separate Channels', 'separateChannels')
     this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
-    this.addOutput('r', new ClassicPreset.Output(channelSocket, 'R'))
-    this.addOutput('g', new ClassicPreset.Output(channelSocket, 'G'))
-    this.addOutput('b', new ClassicPreset.Output(channelSocket, 'B'))
-    this.addOutput('a', new ClassicPreset.Output(channelSocket, 'A'))
+    this.addOutput('r', new ClassicPreset.Output(imageSocket, 'R'))
+    this.addOutput('g', new ClassicPreset.Output(imageSocket, 'G'))
+    this.addOutput('b', new ClassicPreset.Output(imageSocket, 'B'))
+    this.addOutput('a', new ClassicPreset.Output(imageSocket, 'A'))
     this.preview = new ChannelsPreviewControl(this.id)
     this.addControl('preview', this.preview)
   }
@@ -115,22 +117,10 @@ class CombineChannelsNode extends FoldableNode {
 
   constructor() {
     super('Combine Channels', 'combineChannels')
-    this.addInput('r', new ClassicPreset.Input(channelSocket, 'R'))
-    this.addInput('g', new ClassicPreset.Input(channelSocket, 'G'))
-    this.addInput('b', new ClassicPreset.Input(channelSocket, 'B'))
-    this.addInput('a', new ClassicPreset.Input(channelSocket, 'A'))
-    this.addOutput('image', new ClassicPreset.Output(imageSocket, 'Image'))
-    this.preview = new ImageDisplayControl(this.id)
-    this.addControl('preview', this.preview)
-  }
-}
-
-class ShowImageNode extends FoldableNode {
-  readonly preview: ImageDisplayControl
-
-  constructor() {
-    super('Show Image', 'showImage')
-    this.addInput('image', new ClassicPreset.Input(imageSocket, 'Image'))
+    this.addInput('r', new ClassicPreset.Input(imageSocket, 'R'))
+    this.addInput('g', new ClassicPreset.Input(imageSocket, 'G'))
+    this.addInput('b', new ClassicPreset.Input(imageSocket, 'B'))
+    this.addInput('a', new ClassicPreset.Input(imageSocket, 'A'))
     this.addOutput('image', new ClassicPreset.Output(imageSocket, 'Image'))
     this.preview = new ImageDisplayControl(this.id)
     this.addControl('preview', this.preview)
@@ -222,6 +212,49 @@ class UpscaleNode extends FoldableNode {
   }
 }
 
+class ExtractMaterialNode extends FoldableNode {
+  readonly preview: ImageDisplayControl
+  readonly control: ExtractMaterialControl
+
+  constructor() {
+    super('Extract Material', 'extractMaterial')
+    this.addInput('model', new ClassicPreset.Input(modelSocket, 'Model'))
+    this.addOutput('albedo', new ClassicPreset.Output(imageSocket, 'Albedo'))
+    this.addOutput('normal', new ClassicPreset.Output(imageSocket, 'Normal'))
+    this.addOutput('roughness', new ClassicPreset.Output(imageSocket, 'Roughness'))
+    this.addOutput('metallic', new ClassicPreset.Output(imageSocket, 'Metallic'))
+    this.addOutput('ao', new ClassicPreset.Output(imageSocket, 'AO'))
+    this.preview = new ImageDisplayControl(this.id)
+    this.control = new ExtractMaterialControl(this.id)
+    this.addControl('preview', this.preview)
+    this.addControl('control', this.control)
+    this.width = 280
+    this.height = 200
+  }
+}
+
+class ApplyMaterialNode extends FoldableNode {
+  readonly preview: Preview3DControl
+  readonly control: ApplyMaterialControl
+
+  constructor() {
+    super('Apply Material', 'applyMaterial')
+    this.addInput('model', new ClassicPreset.Input(modelSocket, 'Model'))
+    this.addInput('albedo', new ClassicPreset.Input(imageSocket, 'Albedo'))
+    this.addInput('normal', new ClassicPreset.Input(imageSocket, 'Normal'))
+    this.addInput('roughness', new ClassicPreset.Input(imageSocket, 'Roughness'))
+    this.addInput('metallic', new ClassicPreset.Input(imageSocket, 'Metallic'))
+    this.addInput('ao', new ClassicPreset.Input(imageSocket, 'AO'))
+    this.addOutput('model', new ClassicPreset.Output(modelSocket, 'Model'))
+    this.preview = new Preview3DControl(this.id)
+    this.control = new ApplyMaterialControl(this.id)
+    this.addControl('preview', this.preview)
+    this.addControl('control', this.control)
+    this.width = 360
+    this.height = 260
+  }
+}
+
 class RemoveBackgroundNode extends FoldableNode {
   readonly processor: BackgroundRemovalControl
 
@@ -265,7 +298,6 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   loadModel: () => new LoadModelNode(),
   separateChannels: () => new SeparateChannelsNode(),
   combineChannels: () => new CombineChannelsNode(),
-  showImage: () => new ShowImageNode(),
   preview3d: () => new Preview3DNode(),
   generateTripoModel: () => new GenerateTripoModelNode(),
   generateHy21Model: () => new GenerateHy21ModelNode(),
@@ -275,6 +307,8 @@ const NODE_FACTORIES: Record<NodeKind, () => FoldableNode> = {
   saveImage: () => new SaveImageNode(),
   refineDetailGen3d: () => new DetailGen3DNode(),
   upscaleImage: () => new UpscaleNode(),
+  extractMaterial: () => new ExtractMaterialNode(),
+  applyMaterial: () => new ApplyMaterialNode(),
 }
 
 const DEFAULT_NODE_WIDTH = 280
@@ -305,10 +339,17 @@ const NODE_CATALOG: NodeCatalogCategory[] = [
     id: 'output',
     label: 'Output',
     entries: [
-      { kind: 'showImage', label: 'Show Image', description: 'Preview the final image.' },
       { kind: 'preview3d', label: 'Preview 3D', description: 'Inspect a model in Babylon.js.' },
       { kind: 'saveModel', label: 'Save Model', description: 'Download model as GLB.' },
       { kind: 'saveImage', label: 'Save Image', description: 'Download image as PNG.' },
+    ],
+  },
+  {
+    id: '3d-material',
+    label: '3D Material',
+    entries: [
+      { kind: 'extractMaterial', label: 'Extract Material', description: 'Extract material maps from 3D model.' },
+      { kind: 'applyMaterial', label: 'Apply Material', description: 'Apply material maps to 3D model.' },
     ],
   },
   {
@@ -374,15 +415,90 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
           }
         },
         socket() {
-          return ({ data }: { data: ClassicPreset.Socket }) => (
-            <div className="unreal-socket" title={data?.name ?? ''} />
-          )
+          return ({ data }: { data: ClassicPreset.Socket }) => {
+            const socketType = data?.name?.toLowerCase() || 'channel'
+            return (
+              <div 
+                className={`unreal-socket unreal-socket--${socketType}`} 
+                title={data?.name ?? ''} 
+                data-socket-type={data?.name}
+              />
+            )
+          }
         },
       },
     }),
   )
 
   connection.addPreset(ConnectionPresets.classic.setup())
+
+  // Add connection validation and color tracking with periodic DOM checks
+  const updateConnectionColors = () => {
+    // Use multiple timeout checks to ensure DOM is fully updated
+    const tryUpdateColors = (attempts = 0) => {
+      if (attempts > 5) return // Limit attempts to prevent infinite retries
+      
+      setTimeout(() => {
+        const connections = document.querySelectorAll('.rete-connection')
+        let updated = false
+        
+        connections.forEach((connection) => {
+          const connectionEl = connection as HTMLElement
+          
+          // Skip if already has color class
+          if (connectionEl.classList.contains('rete-connection--image') ||
+              connectionEl.classList.contains('rete-connection--model') ||
+              connectionEl.classList.contains('rete-connection--channel')) {
+            return
+          }
+          
+          // Try to find the source socket type from the connection's source node
+          const sourceNodeId = connectionEl.getAttribute('data-source')
+          if (sourceNodeId) {
+            const sourceNode = document.querySelector(`[data-node-id="${sourceNodeId}"]`)
+            if (sourceNode) {
+              // Find the output socket in the source node
+              const outputSockets = sourceNode.querySelectorAll('.socket-wrapper--output .unreal-socket')
+              outputSockets.forEach((socket) => {
+                const socketType = socket.getAttribute('data-socket-type')?.toLowerCase()
+                if (socketType && ['image', 'model', 'channel'].includes(socketType)) {
+                  connectionEl.setAttribute('data-socket-type', socketType)
+                  connectionEl.classList.add(`rete-connection--${socketType}`)
+                  updated = true
+                }
+              })
+            }
+          }
+        })
+        
+        // If no updates were made and connections exist, retry
+        if (!updated && connections.length > 0 && attempts < 3) {
+          tryUpdateColors(attempts + 1)
+        }
+      }, 200 + (attempts * 100)) // Increase delay with each attempt
+    }
+    
+    tryUpdateColors()
+  }
+  
+  // Set up periodic connection color updates
+  let colorUpdateInterval: ReturnType<typeof setInterval> | null = null
+  const startColorUpdates = () => {
+    if (colorUpdateInterval) clearInterval(colorUpdateInterval)
+    colorUpdateInterval = setInterval(() => {
+      const connections = document.querySelectorAll('.rete-connection:not([data-socket-type])')
+      if (connections.length > 0) {
+        updateConnectionColors()
+      }
+    }, 200)
+  }
+  
+  const stopColorUpdates = () => {
+    if (colorUpdateInterval) {
+      clearInterval(colorUpdateInterval)
+      colorUpdateInterval = null
+    }
+  }
 
   // Use plugins in the correct order for rete v2
   editor.use(area)
@@ -414,8 +530,67 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
     const result = context
 
     switch (context.type) {
-      case 'connectioncreated':
-      case 'connectionremoved':
+      case 'connectioncreate': {
+        // Validate socket type compatibility before creating connection
+        const { data } = context
+        const sourceNode = editor.getNode(data.source) as FoldableNode
+        const targetNode = editor.getNode(data.target) as FoldableNode
+        
+        if (sourceNode && targetNode) {
+          const sourceOutput = sourceNode.outputs[data.sourceOutput as string]
+          const targetInput = targetNode.inputs[data.targetInput as string]
+          
+          if (sourceOutput && targetInput) {
+            const sourceType = sourceOutput.socket?.name?.toLowerCase()
+            const targetType = targetInput.socket?.name?.toLowerCase()
+            
+            // Prevent incompatible connections
+            if (sourceType !== targetType) {
+              console.warn(`Cannot connect ${sourceType} to ${targetType} - socket types must match`)
+              return // Block the connection
+            }
+          }
+        }
+        break
+      }
+      case 'connectioncreated': {
+        // Update connection tracking for material nodes
+        const { data } = context
+        const targetNode = editor.getNode(data.target) as FoldableNode
+        
+        if (targetNode) {
+          // Check if target node is a material node with control
+          if (targetNode instanceof ExtractMaterialNode || targetNode instanceof ApplyMaterialNode) {
+            const control = targetNode.controls.control as ExtractMaterialControl | ApplyMaterialControl | undefined
+            if (control) {
+              control.setInputConnected(data.targetInput, true)
+            }
+          }
+        }
+        
+        updateConnectionColors()
+        startColorUpdates()
+        scheduleEvaluation()
+        break
+      }
+      case 'connectionremoved': {
+        // Update connection tracking for material nodes
+        const { data } = context
+        const targetNode = editor.getNode(data.target) as FoldableNode
+        
+        if (targetNode) {
+          // Check if target node is a material node with control
+          if (targetNode instanceof ExtractMaterialNode || targetNode instanceof ApplyMaterialNode) {
+            const control = targetNode.controls.control as ExtractMaterialControl | ApplyMaterialControl | undefined
+            if (control) {
+              control.setInputConnected(data.targetInput, false)
+            }
+          }
+        }
+        
+        scheduleEvaluation()
+        break
+      }
       case 'nodecreated':
       case 'noderemoved':
       case 'cleared':
@@ -597,15 +772,18 @@ export async function createEditor(container: HTMLElement): Promise<EditorSetup>
   await addNode('loadImage', { x: 80, y: 120 })
   await addNode('separateChannels', { x: 360, y: 90 })
   await addNode('combineChannels', { x: 640, y: 90 })
-  await addNode('showImage', { x: 920, y: 120 })
   await addNode('loadModel', { x: 80, y: 340 })
   await addNode('preview3d', { x: 360, y: 320 })
 
   AreaExtensions.zoomAt(area, editor.getNodes())
   await runEvaluation()
 
+  // Start color updates for initial connections
+  startColorUpdates()
+
   return {
     destroy() {
+      stopColorUpdates()
       area.destroy()
     },
     editor,
@@ -813,7 +991,10 @@ function UnrealNode(props: {
       data-kind={node.kind}
       style={{ width: `${size.width}px` }}
     >
-      <header className="unreal-node__header">
+      <header 
+        className="unreal-node__header"
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <button type="button" className="unreal-node__fold" onClick={() => void onToggle()} aria-label="Toggle node">
           {collapsed ? '+' : '–'}
         </button>
@@ -848,10 +1029,15 @@ function UnrealNode(props: {
                       nodeId={node.id}
                       emit={emit}
                       payload={input.socket}
+                      data-socket-type={input.socket?.name}
                     />
                   </div>
                   {input.control && input.showControl && (
-                    <div className="unreal-node__inline-control">
+                    <div 
+                      className="unreal-node__inline-control"
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
                       {renderControlComponent(input.control, onGraphChange)}
                     </div>
                   )}
@@ -869,6 +1055,8 @@ function UnrealNode(props: {
                 <div
                   key={key}
                   className={`unreal-node__control-slot${isPreview ? ' unreal-node__control-slot--fill' : ''}`}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
                   {content}
                 </div>
@@ -891,6 +1079,7 @@ function UnrealNode(props: {
                       nodeId={node.id}
                       emit={emit}
                       payload={output.socket}
+                      data-socket-type={output.socket?.name}
                     />
                   </div>
                 </div>
@@ -1020,39 +1209,41 @@ async function evaluateNode(
   if (node instanceof SeparateChannelsNode) {
     const image = inputs.image as ImageValue | undefined
     if (!image) return {}
-    const channels = await separateChannels(image)
-    return channels
+    
+    // Extract each channel as an image
+    const [r, g, b, a] = await Promise.all([
+      extractChannelAsImage(image, 'r'),
+      extractChannelAsImage(image, 'g'),
+      extractChannelAsImage(image, 'b'),
+      extractChannelAsImage(image, 'a'),
+    ])
+    
+    return { r, g, b, a }
   }
 
   if (node instanceof CombineChannelsNode) {
-    const gather = async (value: NodeOutputValue | undefined, channel: ChannelKey) => {
+    const gatherChannel = async (value: NodeOutputValue | undefined, channel: ChannelKey) => {
       if (!value) return undefined
+      if (typeof value === 'object' && value.kind === 'image') {
+        // Convert image input back to channel for processing
+        return await imageToChannel(value, channel)
+      }
       if (typeof value === 'object' && value.kind === 'channel') {
         return value as ChannelValue
-      }
-      if (typeof value === 'object' && value.kind === 'image') {
-        const generated = await separateChannels(value)
-        return generated[channel]
       }
       return undefined
     }
 
     const [r, g, b, a] = await Promise.all([
-      gather(inputs.r, 'r'),
-      gather(inputs.g, 'g'),
-      gather(inputs.b, 'b'),
-      gather(inputs.a, 'a'),
+      gatherChannel(inputs.r, 'r'),
+      gatherChannel(inputs.g, 'g'),
+      gatherChannel(inputs.b, 'b'),
+      gatherChannel(inputs.a, 'a'),
     ])
 
     const result = await combineChannels({ r, g, b, a })
     node.preview.setImage(result)
     return result ? { image: result } : {}
-  }
-
-  if (node instanceof ShowImageNode) {
-    const image = inputs.image as ImageValue | undefined
-    node.preview.setImage(image)
-    return image ? { image } : {}
   }
 
   if (node instanceof Preview3DNode) {
@@ -1125,6 +1316,80 @@ async function evaluateNode(
     const image = inputs.image as ImageValue | undefined
     control?.setImage(image)
     return image ? { image } : {}
+  }
+
+  if (node instanceof ExtractMaterialNode) {
+    const model = inputs.model as ModelValue | undefined
+    const control = node.controls.control as ExtractMaterialControl | undefined
+    
+    // Only process if a model is connected and required inputs are available
+    if (!model || !control?.hasRequiredInputs()) {
+      // Clear preview and return empty when no model is connected
+      node.preview.setImage(undefined)
+      return {}
+    }
+    
+    try {
+      // Extract actual material maps from the GLB file
+      const materials = await extractMaterialMapsFromGLB(model)
+      
+      // Set the first available material map as preview (prefer albedo)
+      const previewImage = materials.albedo || materials.normal || materials.roughness || materials.metallic || materials.ao
+      node.preview.setImage(previewImage)
+      
+      return {
+        albedo: materials.albedo,
+        normal: materials.normal,
+        roughness: materials.roughness,
+        metallic: materials.metallic,
+        ao: materials.ao,
+      }
+    } catch (error) {
+      console.error('Failed to extract materials:', error)
+      node.preview.setImage(undefined)
+      return {}
+    }
+  }
+
+  if (node instanceof ApplyMaterialNode) {
+    const model = inputs.model as ModelValue | undefined
+    const control = node.controls.control as ApplyMaterialControl | undefined
+    
+    // Only process if a model is connected and required inputs are available
+    if (!model || !control?.hasRequiredInputs()) {
+      node.preview.setModel(undefined)
+      return {}
+    }
+    
+    // Check if any material maps are connected
+    const hasMaterialInputs = control?.hasMaterialInputs()
+    
+    // If no material maps are connected, just pass through the model
+    if (!hasMaterialInputs) {
+      node.preview.setModel(model)
+      return { model }
+    }
+    
+    // Collect connected material maps
+    const materials = {
+      albedo: inputs.albedo as ImageValue | undefined,
+      normal: inputs.normal as ImageValue | undefined,
+      roughness: inputs.roughness as ImageValue | undefined,
+      metallic: inputs.metallic as ImageValue | undefined,
+      ao: inputs.ao as ImageValue | undefined,
+    }
+    
+    try {
+      // Apply the connected material maps to the model
+      const texturedModel = await applyMaterialMapsToGLB(model, materials)
+      node.preview.setModel(texturedModel)
+      return { model: texturedModel }
+    } catch (error) {
+      console.error('Failed to apply materials:', error)
+      // Fallback to original model if application fails
+      node.preview.setModel(model)
+      return { model }
+    }
   }
 
   return {}

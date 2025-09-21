@@ -140,6 +140,8 @@
   flex: 1;
   display: flex;
   overflow: hidden;
+  height: calc(100vh - 82px); /* Subtract header height */
+  min-height: 0;
 }
 
 .logs-pane {
@@ -277,12 +279,38 @@
 
 .library-pane {
   width: 260px;
+  height: 100vh;
+  max-height: 100vh;
   border-right: 1px solid rgba(255, 143, 37, 0.18);
   background: linear-gradient(180deg, rgba(33, 33, 34, 0.96), rgba(22, 22, 23, 0.98));
   padding: 24px 20px;
   display: flex;
   flex-direction: column;
   gap: 22px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 140, 20, 0.4) rgba(33, 33, 34, 0.8);
+  box-sizing: border-box;
+}
+
+/* Custom scrollbar for WebKit browsers */
+.library-pane::-webkit-scrollbar {
+  width: 6px;
+}
+
+.library-pane::-webkit-scrollbar-track {
+  background: rgba(33, 33, 34, 0.8);
+  border-radius: 3px;
+}
+
+.library-pane::-webkit-scrollbar-thumb {
+  background: rgba(255, 140, 20, 0.4);
+  border-radius: 3px;
+}
+
+.library-pane::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 140, 20, 0.6);
 }
 
 .library-pane h2 {
@@ -291,6 +319,58 @@
   text-transform: uppercase;
   color: #ff9b3d;
   margin: 0;
+}
+
+.library-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.library-search-input {
+  flex: 1;
+  background: rgba(47, 48, 50, 0.82);
+  border: 1px solid rgba(255, 140, 20, 0.35);
+  border-radius: 8px;
+  color: rgba(236, 236, 236, 0.88);
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.library-search-input:focus {
+  border-color: rgba(255, 166, 66, 0.65);
+  background: rgba(60, 61, 63, 0.9);
+}
+
+.library-search-input::placeholder {
+  color: rgba(200, 200, 200, 0.5);
+}
+
+.library-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: rgba(255, 140, 20, 0.7);
+  font-size: 1.2rem;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.library-search-clear:hover {
+  background: rgba(255, 140, 20, 0.2);
+  color: rgba(255, 140, 20, 1);
 }
 
 .library-category h3 {
@@ -345,17 +425,22 @@
 .canvas-pane {
   flex: 1 1 auto;
   padding: 24px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .node-canvas {
   width: 100%;
   height: 100%;
+  max-height: calc(100vh - 130px); /* Constrain to viewport minus header and padding */
   border-radius: 18px;
   border: 1px solid rgba(255, 136, 34, 0.2);
   background: linear-gradient(180deg, rgba(27, 27, 28, 0.95), rgba(18, 18, 19, 0.98));
   box-shadow: 0 28px 48px rgba(0, 0, 0, 0.65);
   position: relative;
   user-select: none;
+  overflow: hidden;
 }
 
 .unreal-node {
@@ -554,8 +639,44 @@
   pointer-events: none;
 }
 
+/* Image socket - Blue */
+.unreal-socket--image {
+  border: 2px solid rgba(66, 165, 245, 0.9);
+  background: radial-gradient(circle, rgba(33, 150, 243, 0.95) 0%, rgba(21, 101, 192, 0.85) 85%);
+  box-shadow: 0 0 14px rgba(33, 150, 243, 0.45);
+}
+
+/* Model socket - Purple */
+.unreal-socket--model {
+  border: 2px solid rgba(156, 39, 176, 0.9);
+  background: radial-gradient(circle, rgba(142, 36, 170, 0.95) 0%, rgba(74, 20, 140, 0.85) 85%);
+  box-shadow: 0 0 14px rgba(142, 36, 170, 0.45);
+}
+
+/* Channel socket - Orange (default) */
+.unreal-socket--channel {
+  border: 2px solid rgba(255, 168, 66, 0.9);
+  background: radial-gradient(circle, rgba(255, 140, 20, 0.95) 0%, rgba(140, 60, 0, 0.85) 85%);
+  box-shadow: 0 0 14px rgba(255, 140, 20, 0.45);
+}
+
 .unreal-node .input-socket:hover .unreal-socket,
 .unreal-node .output-socket:hover .unreal-socket {
+  box-shadow: 0 0 20px rgba(255, 160, 60, 0.75);
+}
+
+.unreal-node .input-socket:hover .unreal-socket--image,
+.unreal-node .output-socket:hover .unreal-socket--image {
+  box-shadow: 0 0 20px rgba(33, 150, 243, 0.75);
+}
+
+.unreal-node .input-socket:hover .unreal-socket--model,
+.unreal-node .output-socket:hover .unreal-socket--model {
+  box-shadow: 0 0 20px rgba(142, 36, 170, 0.75);
+}
+
+.unreal-node .input-socket:hover .unreal-socket--channel,
+.unreal-node .output-socket:hover .unreal-socket--channel {
   box-shadow: 0 0 20px rgba(255, 160, 60, 0.75);
 }
 
@@ -575,6 +696,25 @@
 .node-canvas .control-block,
 .node-canvas .control-block * {
   user-select: text;
+}
+
+/* Prevent double-click zoom on interactive elements */
+.control-block *,
+.unreal-node__controls *,
+.unreal-node__header,
+.unreal-node__header *,
+.socket-wrapper,
+.socket-wrapper *,
+input, button, select, textarea,
+.thumbnail button,
+.meta-row button,
+.mode-selector button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  pointer-events: auto;
 }
 
 .control-block.generating {
@@ -820,4 +960,52 @@
 [data-testid='connection'] path {
   stroke: rgba(255, 128, 0, 0.85) !important;
   stroke-width: 3px !important;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+/* Connection colors based on socket types */
+/* Image connections - Blue */
+.rete-connection--image path,
+.rete-connection[data-socket-type='image'] path,
+.rete-connection[data-source-socket='Image'] path {
+  stroke: rgba(33, 150, 243, 0.85) !important;
+  stroke-width: 3px !important;
+}
+
+/* Model connections - Purple */
+.rete-connection--model path,
+.rete-connection[data-socket-type='model'] path,
+.rete-connection[data-source-socket='Model'] path {
+  stroke: rgba(142, 36, 170, 0.85) !important;
+  stroke-width: 3px !important;
+}
+
+/* Channel connections - Orange (default) */
+.rete-connection--channel path,
+.rete-connection[data-socket-type='channel'] path,
+.rete-connection[data-source-socket='Channel'] path {
+  stroke: rgba(255, 128, 0, 0.85) !important;
+  stroke-width: 3px !important;
+}
+
+/* Hover effects for colored connections */
+.rete-connection--image path:hover,
+.rete-connection[data-socket-type='image'] path:hover,
+.rete-connection[data-source-socket='Image'] path:hover {
+  stroke: rgba(33, 150, 243, 1.0) !important;
+  stroke-width: 4px !important;
+}
+
+.rete-connection--model path:hover,
+.rete-connection[data-socket-type='model'] path:hover,
+.rete-connection[data-source-socket='Model'] path:hover {
+  stroke: rgba(142, 36, 170, 1.0) !important;
+  stroke-width: 4px !important;
+}
+
+.rete-connection--channel path:hover,
+.rete-connection[data-socket-type='channel'] path:hover,
+.rete-connection[data-source-socket='Channel'] path:hover {
+  stroke: rgba(255, 128, 0, 1.0) !important;
+  stroke-width: 4px !important;
 }

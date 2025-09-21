@@ -36,7 +36,6 @@ export type NodeKind =
   | 'loadModel'
   | 'separateChannels'
   | 'combineChannels'
-  | 'showImage'
   | 'preview3d'
   | 'generateTripoModel'
   | 'generateHy21Model'
@@ -46,6 +45,8 @@ export type NodeKind =
   | 'saveImage'
   | 'refineDetailGen3d'
   | 'upscaleImage'
+  | 'extractMaterial'
+  | 'applyMaterial'
 
 export interface NodeCatalogEntry {
   kind: NodeKind

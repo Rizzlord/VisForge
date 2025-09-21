@@ -168,20 +168,70 @@ export class ImageDisplayControl extends ReactiveControl {
   }
 }
 
-export class Preview3DControl extends ReactiveControl {
-  mode: PreviewMode = 'Base'
-  model: ModelValue | null = null
-
-  setMode(mode: PreviewMode) {
-    if (this.mode === mode) return
-    this.mode = mode
-    this.notify()
+export class ApplyMaterialControl extends ReactiveControl {
+  private inputConnected: Record<string, boolean> = {
+    model: false,
+    albedo: false,
+    normal: false,
+    roughness: false,
+    metallic: false,
+    ao: false,
   }
+
+  setInputConnected(inputName: string, connected: boolean) {
+    if (this.inputConnected[inputName] !== connected) {
+      this.inputConnected[inputName] = connected
+      this.notify()
+    }
+  }
+
+  hasRequiredInputs(): boolean {
+    // At minimum, we need a model
+    return this.inputConnected.model
+  }
+
+  hasMaterialInputs(): boolean {
+    // Check if any material maps are connected
+    return this.inputConnected.albedo || 
+           this.inputConnected.normal || 
+           this.inputConnected.roughness || 
+           this.inputConnected.metallic || 
+           this.inputConnected.ao
+  }
+}
+
+export class ExtractMaterialControl extends ReactiveControl {
+  private inputConnected: Record<string, boolean> = {
+    model: false,
+  }
+
+  setInputConnected(inputName: string, connected: boolean) {
+    if (this.inputConnected[inputName] !== connected) {
+      this.inputConnected[inputName] = connected
+      this.notify()
+    }
+  }
+
+  hasRequiredInputs(): boolean {
+    // We need a model to extract materials
+    return this.inputConnected.model
+  }
+}
+
+export class Preview3DControl extends ReactiveControl {
+  model: ModelValue | null = null
+  mode: PreviewMode = 'Base'
 
   setModel(model: ModelValue | undefined) {
     const next = model ?? null
     if (this.model === next) return
     this.model = next
+    this.notify()
+  }
+
+  setMode(mode: PreviewMode) {
+    if (this.mode === mode) return
+    this.mode = mode
     this.notify()
   }
 }
@@ -1018,11 +1068,13 @@ export function ChannelsPreviewControlView(props: {
 }) {
   const { control } = props
   const outputs = useGraphOutputs(control.nodeId)
-  const channels: Partial<Record<ChannelKey, ChannelValue>> = {
-    r: outputs.r as ChannelValue | undefined,
-    g: outputs.g as ChannelValue | undefined,
-    b: outputs.b as ChannelValue | undefined,
-    a: outputs.a as ChannelValue | undefined,
+  
+  // Now the outputs are images instead of channels
+  const channelImages = {
+    r: outputs.r as ImageValue | undefined,
+    g: outputs.g as ImageValue | undefined,
+    b: outputs.b as ImageValue | undefined,
+    a: outputs.a as ImageValue | undefined,
   }
 
   return (
@@ -1030,9 +1082,9 @@ export function ChannelsPreviewControlView(props: {
       {(['r', 'g', 'b', 'a'] as ChannelKey[]).map((key) => (
         <div key={key} className="channel-tile">
           <div className="channel-label">{key.toUpperCase()}</div>
-          {channels[key] ? (
+          {channelImages[key] ? (
             <div className="channel-preview transparent-surface">
-              <img src={channels[key]!.dataUrl} alt={`${key} channel`} />
+              <img src={channelImages[key]!.dataUrl} alt={`${key} channel`} style={{ height: '100%', objectFit: 'contain' }} />
             </div>
           ) : (
             <span className="channel-placeholder">Connect image input</span>

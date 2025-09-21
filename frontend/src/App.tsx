@@ -156,6 +156,7 @@ function App() {
   const [logs, setLogs] = useState<BackendLogEntry[]>([])
   const [pythonLogs, setPythonLogs] = useState<PythonLogEntry[]>([])
   const [showPythonLogs, setShowPythonLogs] = useState(true)
+  const [nodeSearchQuery, setNodeSearchQuery] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const mountedRef = useRef(true)
@@ -177,6 +178,23 @@ function App() {
   }, [])
 
   const catalog: NodeCatalogCategory[] = useMemo(() => editorSetup?.catalog ?? [], [editorSetup])
+
+  // Filter catalog based on search query
+  const filteredCatalog: NodeCatalogCategory[] = useMemo(() => {
+    if (!nodeSearchQuery.trim()) return catalog
+    
+    const query = nodeSearchQuery.toLowerCase().trim()
+    return catalog
+      .map(category => ({
+        ...category,
+        entries: category.entries.filter(entry => 
+          entry.label.toLowerCase().includes(query) ||
+          entry.description?.toLowerCase().includes(query) ||
+          entry.kind.toLowerCase().includes(query)
+        )
+      }))
+      .filter(category => category.entries.length > 0)
+  }, [catalog, nodeSearchQuery])
 
   const persistState = useCallback(
     async (tabs: WorkflowTab[], activeId: string | null) => {
@@ -711,7 +729,26 @@ function App() {
       <main className="workspace">
         <aside className="library-pane">
           <h2>Node Library</h2>
-          {catalog.map((category) => (
+          <div className="library-search">
+            <input
+              type="text"
+              placeholder="Search nodes..."
+              value={nodeSearchQuery}
+              onChange={(e) => setNodeSearchQuery(e.target.value)}
+              className="library-search-input"
+            />
+            {nodeSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setNodeSearchQuery('')}
+                className="library-search-clear"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {filteredCatalog.map((category) => (
             <section key={category.id} className="library-category">
               <h3>{category.label}</h3>
               <div className="library-items">
@@ -732,6 +769,9 @@ function App() {
               </div>
             </section>
           ))}
+          {!filteredCatalog.length && nodeSearchQuery && (
+            <p className="library-placeholder">No nodes found matching "{nodeSearchQuery}"</p>
+          )}
           {!catalog.length && <p className="library-placeholder">Editor starting…</p>}
         </aside>
         <section className="canvas-pane">
